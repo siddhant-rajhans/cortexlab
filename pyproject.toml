@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cortexlab"
+version = "0.1.0"
+description = "Enhanced multimodal fMRI brain encoding toolkit built on TRIBE v2"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [{name = "CortexLab Contributors"}]
+
+dependencies = [
+  "neuralset==0.0.2",
+  "neuraltrain==0.0.2",
+  "torch>=2.5.1,<2.7",
+  "numpy>=2.0",
+  "torchvision>=0.20,<0.22",
+  "x_transformers==1.27.20",
+  "einops",
+  "pyyaml",
+  "moviepy>=2.2.1",
+  "huggingface_hub",
+  "gtts",
+  "langdetect",
+  "spacy",
+  "soundfile",
+  "Levenshtein",
+  "julius",
+  "transformers",
+  "pydantic",
+  "exca",
+  "requests",
+  "tqdm",
+  "pandas",
+]
+
+[project.optional-dependencies]
+plotting = [
+  "nibabel",
+  "matplotlib",
+  "seaborn",
+  "colorcet",
+  "nilearn",
+  "scipy",
+  "pyvista",
+  "scikit-image",
+  "mne",
+]
+training = [
+  "nibabel",
+  "torchmetrics",
+  "wandb",
+  "lightning",
+]
+streaming = [
+  "av",
+]
+analysis = [
+  "scipy",
+]
+dev = [
+  "pytest",
+  "pytest-cov",
+  "ruff",
+]
+
+[project.urls]
+Repository = "https://github.com/cortexlab/cortexlab"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["cortexlab*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501", "F401", "F403", "E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
