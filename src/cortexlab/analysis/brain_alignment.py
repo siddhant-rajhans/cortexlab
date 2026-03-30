@@ -221,3 +221,106 @@ class BrainAlignmentBenchmark:
             roi_scores=roi_scores,
             n_stimuli=model_features.shape[0],
         )
+
+    def permutation_test(
+        self,
+        model_features: np.ndarray,
+        method: str = "rsa",
+        n_permutations: int = 1000,
+        seed: int | None = None,
+        brain_predictions: np.ndarray | None = None,
+    ) -> tuple[float, float]:
+        """Compute significance of alignment via permutation test.
+
+        Shuffles the stimulus order of model_features and recomputes the
+        alignment score. The p-value is the fraction of permuted scores
+        that meet or exceed the observed score.
+
+        Parameters
+        ----------
+        model_features : np.ndarray
+            Feature matrix of shape ``(n_stimuli, D)``.
+        method : str
+            Comparison method (``"rsa"``, ``"cka"``, ``"procrustes"``).
+        n_permutations : int
+            Number of random permutations.
+        seed : int, optional
+            Random seed for reproducibility.
+        brain_predictions : np.ndarray, optional
+            Override stored brain predictions.
+
+        Returns
+        -------
+        observed_score : float
+        p_value : float
+        """
+        rng = np.random.default_rng(seed)
+        result = self.score_model(model_features, method=method, brain_predictions=brain_predictions)
+        observed = result.aggregate_score
+
+        count = 0
+        for _ in range(n_permutations):
+            perm_idx = rng.permutation(model_features.shape[0])
+            perm_result = self.score_model(
+                model_features[perm_idx], method=method, brain_predictions=brain_predictions
+            )
+            if perm_result.aggregate_score >= observed:
+                count += 1
+
+        p_value = (count + 1) / (n_permutations + 1)
+        return observed, p_value
+
+    def bootstrap_ci(
+        self,
+        model_features: np.ndarray,
+        method: str = "rsa",
+        n_bootstrap: int = 1000,
+        confidence: float = 0.95,
+        seed: int | None = None,
+        brain_predictions: np.ndarray | None = None,
+    ) -> tuple[float, float, float]:
+        """Compute bootstrap confidence interval for alignment score.
+
+        Resamples stimuli with replacement and computes the alignment
+        score for each bootstrap sample to estimate the CI.
+
+        Parameters
+        ----------
+        model_features : np.ndarray
+            Feature matrix of shape ``(n_stimuli, D)``.
+        method : str
+            Comparison method.
+        n_bootstrap : int
+            Number of bootstrap samples.
+        confidence : float
+            Confidence level (e.g. 0.95 for 95% CI).
+        seed : int, optional
+            Random seed for reproducibility.
+        brain_predictions : np.ndarray, optional
+            Override stored brain predictions.
+
+        Returns
+        -------
+        point_estimate : float
+        ci_lower : float
+        ci_upper : float
+        """
+        rng = np.random.default_rng(seed)
+        brain = brain_predictions if brain_predictions is not None else self.brain_predictions
+        score_fn = _METHODS[method]
+        n = model_features.shape[0]
+
+        result = self.score_model(model_features, method=method, brain_predictions=brain_predictions)
+        point_estimate = result.aggregate_score
+
+        scores = []
+        for _ in range(n_bootstrap):
+            idx = rng.choice(n, size=n, replace=True)
+            score = score_fn(model_features[idx], brain[idx])
+            scores.append(score)
+
+        scores = np.array(scores)
+        alpha = 1 - confidence
+        ci_lower = float(np.percentile(scores, 100 * alpha / 2))
+        ci_upper = float(np.percentile(scores, 100 * (1 - alpha / 2)))
+        return point_estimate, ci_lower, ci_upper

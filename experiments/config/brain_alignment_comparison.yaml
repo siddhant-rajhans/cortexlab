@@ -1,0 +1,28 @@
+experiment:
+  name: brain_alignment_comparison
+  seed: 42
+  output_dir: experiments/results
+
+data:
+  n_stimuli: 50
+  n_vertices: 200
+
+models:
+  - name: clip-vit-b32
+    feature_dim: 512
+  - name: dinov2-vit-s
+    feature_dim: 384
+  - name: vjepa2-vit-g
+    feature_dim: 1024
+  - name: llama-3.2-3b
+    feature_dim: 3072
+
+methods:
+  - rsa
+  - cka
+  - procrustes
+
+statistics:
+  n_permutations: 200
+  n_bootstrap: 500
+  confidence: 0.95

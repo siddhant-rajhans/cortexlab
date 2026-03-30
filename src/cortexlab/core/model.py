@@ -71,6 +71,7 @@ class FmriEncoder(BaseModelConfig):
     temporal_smoothing: TemporalSmoothing | None = None
     # CortexLab additions
     compile_backbone: bool = False
+    gradient_checkpointing: bool = False
 
     def model_post_init(self, __context):
         if self.encoder is not None:
@@ -284,5 +285,44 @@ class FmriEncoderModel(nn.Module):
             x = x + self.time_pos_embed[:, : x.size(1)]
         if hasattr(self, "subject_embed"):
             x = x + self.subject_embed(subject_id)
-        x = self.encoder(x)
+        if self.config.gradient_checkpointing and self.training:
+            x = torch.utils.checkpoint.checkpoint(self.encoder, x, use_reentrant=False)
+        else:
+            x = self.encoder(x)
         return x
+
+    @torch.inference_mode()
+    def predict_half(
+        self,
+        batch: SegmentData,
+        dtype: torch.dtype = torch.float16,
+    ) -> torch.Tensor:
+        """Run inference in half precision for reduced memory usage.
+
+        Temporarily casts the model and batch to the target dtype,
+        runs forward, then restores the original dtype.
+
+        Parameters
+        ----------
+        batch : SegmentData
+            Input batch.
+        dtype : torch.dtype
+            Target dtype (e.g. ``torch.float16`` or ``torch.bfloat16``).
+
+        Returns
+        -------
+        torch.Tensor
+            Predictions in float32.
+        """
+        original_dtype = next(self.parameters()).dtype
+        self.to(dtype)
+        cast_data = {}
+        for k, v in batch.data.items():
+            if v.is_floating_point():
+                cast_data[k] = v.to(dtype)
+            else:
+                cast_data[k] = v
+        cast_batch = SegmentData(data=cast_data, segments=batch.segments)
+        out = self.forward(cast_batch)
+        self.to(original_dtype)
+        return out.float()

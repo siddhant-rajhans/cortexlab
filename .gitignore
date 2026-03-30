@@ -15,3 +15,5 @@ venv/
 cache/
 wandb/
 .env
+experiments/results/*.json
+*.onnx

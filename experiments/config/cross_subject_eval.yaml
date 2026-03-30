@@ -1,0 +1,21 @@
+experiment:
+  name: cross_subject_eval
+  seed: 42
+  output_dir: experiments/results
+
+data:
+  n_subjects: 5
+  n_timepoints: 100
+  n_vertices: 200
+  hidden_dim: 64
+  calibration_ratios:
+    - 0.1
+    - 0.3
+    - 0.5
+
+adaptation_methods:
+  - ridge
+  - nearest_neighbor
+
+ridge:
+  regularization: 0.001
