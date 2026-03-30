@@ -213,7 +213,29 @@ def get_subject_weights(
 @lru_cache
 def get_hcp_labels(mesh="fsaverage5", combine=False, hemi="both"):
     """
-    Get the HCP labels for the fsaverage subject.
+    Get HCP MMP1.0 parcellation labels and their vertex indices for a given mesh.
+
+    Parameters
+    ----------
+    mesh : str, optional
+        The fsaverage mesh resolution to use. Default is ``"fsaverage5"``.
+    combine : bool, optional
+        If True, uses the combined HCP parcellation (``HCPMMP1_combined``).
+        Default is False.
+    hemi : str, optional
+        Hemisphere to retrieve. One of ``"left"``, ``"right"``, or ``"both"``.
+        Default is ``"both"``.
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        A dictionary mapping ROI label names to arrays of vertex indices.
+
+    Examples
+    --------
+    >>> labels = get_hcp_labels(mesh="fsaverage5", hemi="left")
+    >>> labels["V1"]
+    array([...])
     """
     if hemi in ["right", "left"]:
         subjects_dir = Path(mne.datasets.sample.data_path()) / "subjects"
@@ -266,6 +288,39 @@ def get_hcp_vertex_labels(mesh="fsaverage5", combine=False):
 
 
 def get_hcp_roi_indices(rois: str | list[str], hemi="both", mesh="fsaverage5"):
+    """
+    Get vertex indices for one or more HCP regions of interest (ROIs).
+
+    Supports wildcard matching: prefix ``*`` matches ROIs ending with a string,
+    suffix ``*`` matches ROIs starting with a string.
+
+    Parameters
+    ----------
+    rois : str or list of str
+        ROI name(s) to look up. Supports ``*`` as a wildcard prefix or suffix
+        (e.g., ``"V1*"`` or ``"*motor"``).
+    hemi : str, optional
+        Hemisphere to use. One of ``"left"``, ``"right"``, or ``"both"``.
+        Default is ``"both"``.
+    mesh : str, optional
+        The fsaverage mesh resolution to use. Default is ``"fsaverage5"``.
+
+    Returns
+    -------
+    np.ndarray
+        Array of vertex indices corresponding to the selected ROIs.
+
+    Raises
+    ------
+    ValueError
+        If a specified ROI is not found in the HCP labels.
+
+    Examples
+    --------
+    >>> indices = get_hcp_roi_indices("V1", hemi="left")
+    >>> indices.shape
+    (642,)
+    """
     labels = get_hcp_labels(mesh=mesh, combine=False, hemi=hemi)
     if isinstance(rois, str):
         rois = [rois]
@@ -285,6 +340,38 @@ def get_hcp_roi_indices(rois: str | list[str], hemi="both", mesh="fsaverage5"):
 
 
 def summarize_by_roi(data: np.ndarray, hemi="both", mesh="fsaverage5"):
+    """
+    Summarize vertex-level data by computing the mean value within each HCP ROI.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        1D array of values across all vertices in the mesh.
+    hemi : str, optional
+        Hemisphere to summarize over. One of ``"left"``, ``"right"``, ``"both"``,
+        or ``"both_separate"`` (returns left and right concatenated separately).
+        Default is ``"both"``.
+    mesh : str, optional
+        The fsaverage mesh resolution to use. Default is ``"fsaverage5"``.
+
+    Returns
+    -------
+    np.ndarray
+        1D array of mean values, one per ROI.
+
+    Raises
+    ------
+    ValueError
+        If an invalid hemisphere string is provided.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> data = np.random.rand(20484)
+    >>> roi_means = summarize_by_roi(data, hemi="left")
+    >>> roi_means.shape
+    (180,)
+    """
     assert data.ndim == 1, "Data must be 1D"
     if hemi in ["left", "right", "both"]:
         labels = get_hcp_labels(mesh=mesh, combine=False, hemi=hemi)
@@ -307,6 +394,33 @@ def summarize_by_roi(data: np.ndarray, hemi="both", mesh="fsaverage5"):
 
 
 def get_topk_rois(data: np.ndarray, hemi="both", mesh="fsaverage5", k=10) -> list[str]:
+    """
+    Return the top-k HCP ROIs with the highest mean activation.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        1D array of values across all vertices in the mesh.
+    hemi : str, optional
+        Hemisphere to consider. One of ``"left"``, ``"right"``, ``"both"``,
+        or ``"both_separate"``. Default is ``"both"``.
+    mesh : str, optional
+        The fsaverage mesh resolution to use. Default is ``"fsaverage5"``.
+    k : int, optional
+        Number of top ROIs to return. Default is 10.
+
+    Returns
+    -------
+    np.ndarray
+        Array of ROI label names sorted by descending mean activation.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> data = np.random.rand(20484)
+    >>> get_topk_rois(data, hemi="left", k=5)
+    array(['V1', 'MT', ...], dtype='<U21')
+    """
     values = summarize_by_roi(data, hemi=hemi, mesh=mesh)
     if hemi == "both_separate":
         left_labels = get_hcp_labels(mesh=mesh, combine=False, hemi="left").keys()
