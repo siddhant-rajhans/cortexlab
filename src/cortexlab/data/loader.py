@@ -393,7 +393,7 @@ def summarize_by_roi(data: np.ndarray, hemi="both", mesh="fsaverage5"):
     return out
 
 
-def get_topk_rois(data: np.ndarray, hemi="both", mesh="fsaverage5", k=10) -> list[str]:
+def get_topk_rois(data: np.ndarray, hemi="both", mesh="fsaverage5", k=10) -> np.ndarray:
     """
     Return the top-k HCP ROIs with the highest mean activation.
 
