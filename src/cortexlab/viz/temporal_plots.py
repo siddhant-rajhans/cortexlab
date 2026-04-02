@@ -1,11 +1,6 @@
-"""Visualization utilities for temporal dynamics analysis.
-
-Provides functions to plot peak latencies, response curves (sustained vs
-transient), and lag-correlation findings from TemporalDynamicsAnalyzer.
-"""
-
 from __future__ import annotations
 
+import matplotlib.cm as cm
 import numpy as np
 
 
@@ -23,8 +18,7 @@ def plot_peak_latencies(ax, result, title: str = "Peak Latency per ROI") -> None
     """
     roi_names = list(result.peak_latencies.keys())
     latencies = list(result.peak_latencies.values())
-    colors = ["#2196F3", "#4CAF50", "#FF5722", "#9C27B0", "#FF9800"]
-    colors = colors[: len(roi_names)]
+    colors = [cm.Set2(i / max(len(roi_names) - 1, 1)) for i in range(len(roi_names))]
 
     ax.bar(roi_names, latencies, color=colors)
     ax.set_title(title, fontsize=14, fontweight="bold")
@@ -58,10 +52,25 @@ def plot_response_curves(
     if title is None:
         title = f"Response Curves - {roi_name}"
 
-    n_timepoints = len(result.sustained_components[roi_name])
+    sustained_rois = getattr(result, "sustained_components", {})
+    transient_rois = getattr(result, "transient_components", {})
+    if roi_name not in sustained_rois or roi_name not in transient_rois:
+        available_rois = sorted(
+            set(sustained_rois.keys()) | set(transient_rois.keys())
+        )
+        raise KeyError(
+            f"ROI '{roi_name}' not found in sustained/transient components. "
+            f"Available ROIs: {available_rois}"
+        )
+    sustained = sustained_rois[roi_name]
+    transient = transient_rois[roi_name]
+    if len(sustained) != len(transient):
+        raise ValueError(
+            f"Sustained and transient components for ROI '{roi_name}' have "
+            f"different lengths (sustained={len(sustained)}, transient={len(transient)})."
+        )
+    n_timepoints = len(sustained)
     time_axis = np.arange(n_timepoints) * tr_seconds
-    sustained = result.sustained_components[roi_name]
-    transient = result.transient_components[roi_name]
 
     ax.plot(time_axis, sustained, label="Sustained", color="#2196F3", linewidth=2)
     ax.plot(time_axis, transient, label="Transient", color="#FF5722", linewidth=2, alpha=0.7)
@@ -92,16 +101,26 @@ def plot_lag_correlations(
         Plot title.
     """
     roi_names = list(result.temporal_correlations.keys())
-    colors = ["#2196F3", "#4CAF50", "#FF5722", "#9C27B0", "#FF9800"]
-    colors = colors[: len(roi_names)]
+    if not roi_names:
+        raise ValueError(
+            "No lag-correlation data available in result.temporal_correlations; "
+            "cannot plot lag correlations."
+        )
+    colors = [cm.Set2(i / max(len(roi_names) - 1, 1)) for i in range(len(roi_names))]
 
-    # Infer max_lag from first ROI's correlation array
     first_roi = roi_names[0]
-    n_lags = len(result.temporal_correlations[first_roi])
+    first_corr = result.temporal_correlations[first_roi]
+    n_lags = len(first_corr)
+    if n_lags == 0:
+        raise ValueError(
+            f"Lag-correlation array for ROI '{first_roi}' is empty; cannot infer "
+            "lag axis for plotting."
+        )
     max_lag_trs = (n_lags - 1) // 2
     lags = np.arange(-max_lag_trs, max_lag_trs + 1) * tr_seconds
 
-    for roi_name, color in zip(roi_names, colors):
+    for idx, roi_name in enumerate(roi_names):
+        color = colors[idx % len(colors)]
         corr = result.temporal_correlations[roi_name]
         ax.plot(lags, corr, label=roi_name, color=color, linewidth=2)
 
@@ -112,3 +131,4 @@ def plot_lag_correlations(
     ax.set_ylabel("Correlation")
     ax.legend()
     ax.grid(alpha=0.3)
+    
