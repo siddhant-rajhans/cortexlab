@@ -4,7 +4,6 @@
     <b>Enhanced multimodal fMRI brain encoding toolkit built on <a href="https://github.com/facebookresearch/tribev2">Meta's TRIBE v2</a></b>
   </p>
   <p align="center">
-    <a href="https://github.com/siddhant-rajhans/cortexlab/actions"><img src="https://github.com/siddhant-rajhans/cortexlab/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <a href="https://github.com/siddhant-rajhans/cortexlab"><img src="https://img.shields.io/github/stars/siddhant-rajhans/cortexlab?style=social" alt="Stars"></a>
     <a href="https://github.com/siddhant-rajhans/cortexlab/network/members"><img src="https://img.shields.io/github/forks/siddhant-rajhans/cortexlab?style=social" alt="Forks"></a>
     <a href="https://github.com/siddhant-rajhans/cortexlab/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-CC--BY--NC--4.0-blue" alt="License"></a>
