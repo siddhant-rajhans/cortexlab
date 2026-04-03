@@ -1,0 +1,51 @@
+name: Auto Assign Issues
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  assign:
+    runs-on: ubuntu-latest
+    if: |
+      !github.event.issue.pull_request &&
+      contains(github.event.comment.body, 'assign') &&
+      (contains(github.event.comment.body, 'me') || contains(github.event.comment.body, 'myself'))
+    steps:
+      - name: Check if issue is already assigned
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const commenter = context.payload.comment.user.login;
+
+            // Check if already assigned to someone
+            if (issue.assignees.length > 0) {
+              const assignees = issue.assignees.map(a => a.login).join(', ');
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `@${commenter} This issue is already assigned to ${assignees}. Please pick another issue from the [open issues](../../issues?q=is%3Aissue+is%3Aopen+no%3Aassignee).`
+              });
+              return;
+            }
+
+            // Assign the commenter
+            await github.rest.issues.addAssignees({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              assignees: [commenter]
+            });
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: `Assigned to @${commenter}. Welcome! Please open a PR when ready. If you have questions, feel free to ask here.`
+            });
