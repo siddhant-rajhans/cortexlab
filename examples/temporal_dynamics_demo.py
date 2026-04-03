@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+
 from cortexlab.analysis.temporal_dynamics import TemporalDynamicsAnalyzer
 from cortexlab.viz.temporal_plots import (
+    plot_lag_correlations,
     plot_peak_latencies,
     plot_response_curves,
-    plot_lag_correlations,
 )
 
 
@@ -19,7 +20,6 @@ def main() -> None:
     tr_seconds = 1.0
 
     # Generate stimulus-evoked signal with hemodynamic response
-    t = np.arange(n_timepoints) * tr_seconds
     stimulus_onsets = [10, 30, 55, 75]
     signal = np.zeros(n_timepoints)
     for onset in stimulus_onsets:
