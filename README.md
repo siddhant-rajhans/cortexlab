@@ -153,12 +153,14 @@ src/cortexlab/
 
 ## Interactive Dashboard
 
-An interactive Streamlit dashboard provides visual analysis across all tools:
+A futuristic Streamlit dashboard with glassmorphism UI, 3D brain visualization, and live inference:
 
+- **3D Brain Viewer**: rotatable fsaverage brain with activation overlays, publication-quality 4-panel views
 - **Brain Alignment**: scores with error bars, null distributions, RDM visualization, FDR correction
 - **Cognitive Load**: timeline with confidence bands, dimension correlation, comparison mode
 - **Temporal Dynamics**: raw timecourses, processing hierarchy, cross-ROI lag matrix
 - **Connectivity**: partial correlation, dendrogram, modularity, network graph
+- **Live Inference**: real-time brain prediction from webcam, screen capture, or video file
 
 [Try the Live Demo](https://huggingface.co/spaces/SID2000/cortexlab-dashboard) | [Dashboard Repository](https://github.com/siddhant-rajhans/cortexlab-dashboard)
 
