@@ -11,6 +11,9 @@
     <a href="https://huggingface.co/SID2000/cortexlab"><img src="https://img.shields.io/badge/HuggingFace-model-yellow" alt="HuggingFace"></a>
     <a href="https://huggingface.co/spaces/SID2000/cortexlab-dashboard"><img src="https://img.shields.io/badge/Live%20Demo-HF%20Spaces-orange" alt="Demo"></a>
   </p>
+  <p align="center">
+    <img src="assets/demo.gif" alt="CortexLab Demo" width="700"/>
+  </p>
 </p>
 
 CortexLab extends TRIBE v2 with streaming inference, interpretability tools, brain-alignment benchmarking with statistical testing, temporal dynamics analysis, ROI connectivity mapping, and cognitive load scoring. **76 tests**, published on HuggingFace, with an [interactive dashboard](https://github.com/siddhant-rajhans/cortexlab-dashboard).
