@@ -9,6 +9,7 @@
     <a href="https://github.com/siddhant-rajhans/cortexlab/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-CC--BY--NC--4.0-blue" alt="License"></a>
     <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python"></a>
     <a href="https://huggingface.co/SID2000/cortexlab"><img src="https://img.shields.io/badge/HuggingFace-model-yellow" alt="HuggingFace"></a>
+    <a href="https://pypi.org/project/cortexlab-toolkit/"><img src="https://img.shields.io/pypi/v/cortexlab-toolkit?color=green" alt="PyPI"></a>
     <a href="https://huggingface.co/spaces/SID2000/cortexlab-dashboard"><img src="https://img.shields.io/badge/Live%20Demo-HF%20Spaces-orange" alt="Demo"></a>
   </p>
   <p align="center">
@@ -67,6 +68,10 @@ The pretrained TRIBE v2 model uses **LLaMA 3.2-3B** as its text encoder. You mus
 ## Installation
 
 ```bash
+# From PyPI
+pip install cortexlab-toolkit
+
+# From source (with analysis extras)
 git clone https://github.com/siddhant-rajhans/cortexlab.git
 cd cortexlab
 pip install -e ".[analysis]"
