@@ -1,0 +1,20 @@
+# Configuration consumed by experiments/causal_modality_ablation.py on
+# Slurm clusters. Paths default to $CORTEXLAB_DATA / $CORTEXLAB_RESULTS
+# from env_setup.sh; override here if your layout differs.
+
+# Dataset root. The BOLD Moments loader expects the canonical Lahner 2024
+# directory layout underneath this path (stimuli/ , fmri/<sub-XX>/ , etc).
+data_root: null  # null => use $CORTEXLAB_DATA/bold_moments
+
+# Directory containing one .npz feature cache per preset from
+# extract_features.sbatch. null => use $CORTEXLAB_RESULTS/features.
+feature_cache: null
+
+# Ridge grid. Overridden if --alphas is passed on the command line.
+alphas: [0.01, 1.0, 100.0, 10000.0, 1000000.0]
+
+# Cross-validation folds.
+cv: 5
+
+# Mask strategy: 'zero' or 'learned'.
+mask_strategy: zero
