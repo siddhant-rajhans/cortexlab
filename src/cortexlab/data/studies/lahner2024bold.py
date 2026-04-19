@@ -42,6 +42,7 @@ Download Requirements:
 """
 
 import json
+import os
 import pickle as pkl
 import typing as tp
 from pathlib import Path
@@ -51,6 +52,107 @@ import numpy as np
 import pandas as pd
 from neuralset.events import study
 from neuralset.utils import get_bids_filepath, get_masked_bold_image, read_bids_events
+
+
+STIMULI_SUBPATH: tp.Final[str] = "stimuli/stimulus_set/stimuli"
+"""Path inside a BOLD Moments data root that holds the ``train/`` and ``test/`` video directories."""
+
+
+def list_stimulus_paths(
+    root: str | os.PathLike | None = None,
+    split: str | None = None,
+    suffix: str = ".mp4",
+) -> list[Path]:
+    """Return stimulus video paths for the BOLD Moments dataset.
+
+    The returned list is the canonical order used throughout CortexLab
+    for stimulus indexing: training clips first (sorted by filename),
+    then test clips (sorted by filename). Downstream code (feature
+    extraction, encoding, alignment benchmarks) assumes this order.
+
+    Parameters
+    ----------
+    root
+        Path to the BOLD Moments data root, i.e. the directory that
+        contains ``stimuli/stimulus_set/stimuli/{train,test}/*.mp4``.
+        When ``None``, falls back to the ``CORTEXLAB_DATA`` environment
+        variable, which should point at the dataset root on the target
+        cluster (see ``scripts/slurm/env_setup.sh``).
+    split
+        ``"train"``, ``"test"``, or ``None`` for both (default).
+    suffix
+        File suffix to match. BOLD Moments ships with ``.mp4`` clips;
+        expose the parameter so callers can adapt if they re-encode
+        the stimuli.
+
+    Returns
+    -------
+    list[Path]
+        Sorted stimulus paths.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the expected ``stimuli/stimulus_set/stimuli`` directory or a
+        requested split directory is missing, or if no files match the
+        suffix. The error message includes the resolved root so the
+        underlying cluster-path typo is easy to spot.
+
+    Examples
+    --------
+    >>> paths = list_stimulus_paths("/scratch/me/bold_moments")  # doctest: +SKIP
+    >>> len(paths)                                                # doctest: +SKIP
+    1102
+    >>> paths[0].name                                             # doctest: +SKIP
+    '0001_aerobics.mp4'
+    """
+    root = _resolve_root(root)
+    stim_root = root / STIMULI_SUBPATH
+    if not stim_root.is_dir():
+        raise FileNotFoundError(
+            f"expected BOLD Moments stimuli under {stim_root} (resolved from {root}); "
+            "is the dataset staged in CORTEXLAB_DATA?"
+        )
+
+    if split is not None and split not in ("train", "test"):
+        raise ValueError(f"split must be 'train', 'test', or None; got {split!r}")
+
+    splits = ("train", "test") if split is None else (split,)
+    out: list[Path] = []
+    for sp in splits:
+        sp_dir = stim_root / sp
+        if not sp_dir.is_dir():
+            raise FileNotFoundError(
+                f"missing split directory {sp_dir}; staging for BOLD Moments incomplete."
+            )
+        paths = sorted(sp_dir.glob(f"*{suffix}"))
+        if not paths:
+            raise FileNotFoundError(
+                f"no *{suffix} files in {sp_dir}. If stimuli were re-encoded, "
+                "pass the new suffix via list_stimulus_paths(..., suffix=...)"
+            )
+        out.extend(paths)
+    return out
+
+
+def _resolve_root(root: str | os.PathLike | None) -> Path:
+    if root is None:
+        env_root = os.environ.get("CORTEXLAB_DATA")
+        if not env_root:
+            raise RuntimeError(
+                "root was not provided and CORTEXLAB_DATA is unset. "
+                "Either pass root=/path/to/bold_moments or export CORTEXLAB_DATA."
+            )
+        root = env_root
+    p = Path(root)
+    if not p.is_dir():
+        raise FileNotFoundError(f"dataset root does not exist: {p}")
+    # Allow callers to pass either the dataset root or the parent folder
+    # holding a `bold_moments/` subdirectory.
+    candidate = p / "bold_moments"
+    if candidate.is_dir() and not (p / STIMULI_SUBPATH).is_dir():
+        return candidate
+    return p
 
 
 class Lahner2024Bold(study.Study):
