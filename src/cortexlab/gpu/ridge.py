@@ -356,7 +356,6 @@ def _solve_ridge_single_alpha(
     if backend == "triton":
         return _solve_ridge_single_alpha_triton(X, Y, alpha)
     # Cholesky of (X'X + lambda I) is numerically stable and fast for p small.
-    p = X.shape[1]
     A = X.T @ X
     A.diagonal().add_(alpha)
     B = X.T @ Y

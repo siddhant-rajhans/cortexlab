@@ -19,7 +19,6 @@ import torch
 
 from cortexlab.features import PRESETS, FoundationFeatureExtractor, StimulusSpec
 
-
 # --------------------------------------------------------------------------- #
 # fixtures / stub model                                                       #
 # --------------------------------------------------------------------------- #
