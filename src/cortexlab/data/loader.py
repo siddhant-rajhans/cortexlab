@@ -211,7 +211,9 @@ def get_subject_weights(
 
 
 @lru_cache
-def get_hcp_labels(mesh="fsaverage5", combine=False, hemi="both"):
+def get_hcp_labels(
+    mesh: str = "fsaverage5", combine: bool = False, hemi: str = "both"
+) -> dict[str, np.ndarray]:
     """
     Get HCP MMP1.0 parcellation labels and their vertex indices for a given mesh.
 
@@ -278,7 +280,9 @@ def get_hcp_labels(mesh="fsaverage5", combine=False, hemi="both"):
         return label_to_vertices
 
 
-def get_hcp_vertex_labels(mesh="fsaverage5", combine=False):
+def get_hcp_vertex_labels(
+    mesh: str = "fsaverage5", combine: bool = False
+) -> list[str]:
     labels = get_hcp_labels(mesh, combine)
     out = [""] * FSAVERAGE_SIZES[mesh] * 2
     for label, vertices in labels.items():
@@ -287,7 +291,9 @@ def get_hcp_vertex_labels(mesh="fsaverage5", combine=False):
     return out
 
 
-def get_hcp_roi_indices(rois: str | list[str], hemi="both", mesh="fsaverage5"):
+def get_hcp_roi_indices(
+    rois: str | list[str], hemi: str = "both", mesh: str = "fsaverage5"
+) -> np.ndarray:
     """
     Get vertex indices for one or more HCP regions of interest (ROIs).
 
@@ -339,7 +345,9 @@ def get_hcp_roi_indices(rois: str | list[str], hemi="both", mesh="fsaverage5"):
     return vertex_indices
 
 
-def summarize_by_roi(data: np.ndarray, hemi="both", mesh="fsaverage5"):
+def summarize_by_roi(
+    data: np.ndarray, hemi: str = "both", mesh: str = "fsaverage5"
+) -> np.ndarray:
     """
     Summarize vertex-level data by computing the mean value within each HCP ROI.
 

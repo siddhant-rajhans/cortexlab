@@ -50,7 +50,7 @@ class StreamingPredictor:
         tr_seconds: float = 1.0,
         modalities: list[str] | None = None,
         device: str | torch.device = "cpu",
-    ):
+    ) -> None:
         self.model = model
         self.window_trs = window_trs
         self.step_trs = step_trs

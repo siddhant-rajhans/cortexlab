@@ -36,7 +36,7 @@ class ModalityAttributor:
         self,
         model: torch.nn.Module,
         roi_indices: dict[str, np.ndarray] | None = None,
-    ):
+    ) -> None:
         self.model = model
         self.roi_indices = roi_indices
 
