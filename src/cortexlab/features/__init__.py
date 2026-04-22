@@ -25,5 +25,17 @@ from cortexlab.features.extractors import (
     FoundationFeatureExtractor,
     StimulusSpec,
 )
+from cortexlab.features.text import (
+    TEXT_PRESETS,
+    TextExtractorConfig,
+    TextFeatureExtractor,
+)
 
-__all__ = ["FoundationFeatureExtractor", "PRESETS", "StimulusSpec"]
+__all__ = [
+    "FoundationFeatureExtractor",
+    "PRESETS",
+    "StimulusSpec",
+    "TextFeatureExtractor",
+    "TextExtractorConfig",
+    "TEXT_PRESETS",
+]

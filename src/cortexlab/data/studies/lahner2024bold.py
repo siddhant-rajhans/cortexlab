@@ -157,10 +157,124 @@ def _resolve_root(root: str | os.PathLike | None) -> Path:
 BETAS_SUBPATH: tp.Final[str] = "derivatives/versionB/fsaverage/GLM"
 """Relative path under the dataset root containing the per-subject prepared betas."""
 
+CAPTIONS_SUBPATH: tp.Final[str] = (
+    "derivatives/stimuli_metadata/llm_frame_annotations.json"
+)
+"""Relative path under the dataset root holding per-stimulus LLM captions."""
+
 N_TRAIN_STIMULI: tp.Final[int] = 1000
 N_TEST_STIMULI: tp.Final[int] = 102
 N_VERTICES_PER_HEMI: tp.Final[int] = 163842
 """fsaverage7 surface vertex count per hemisphere."""
+
+
+def load_captions(
+    root: str | os.PathLike | None = None,
+    generator_key: str = "GIT-git-large-coco",
+    caption_index: int = 0,
+    join: bool = False,
+) -> list[str]:
+    """Return one caption per stimulus aligned with :func:`list_stimulus_paths`.
+
+    The BOLD Moments authors ship five machine-generated captions per video's
+    middle frame, produced by ``GIT-git-large-coco``. This helper flattens
+    them into a stable list whose order matches ``list_stimulus_paths()``
+    one-to-one, so the output can be fed into a text encoder and the
+    resulting feature array aligns row-wise with vision features.
+
+    Parameters
+    ----------
+    root
+        Dataset root, same resolution rules as :func:`list_stimulus_paths`.
+    generator_key
+        Which caption generator to pull from the JSON. Defaults to the
+        single generator shipped by the dataset (``GIT-git-large-coco``);
+        if future releases add more, override here.
+    caption_index
+        Which of the N captions produced by ``generator_key`` to keep,
+        when ``join`` is False. Defaults to the first caption.
+    join
+        If True, concatenate all captions for a stimulus with a space
+        separator rather than picking one. Useful for boosting signal in
+        a short-text regime at the cost of per-caption uniqueness.
+
+    Returns
+    -------
+    list[str]
+        Length equals ``len(list_stimulus_paths(root))``. Entries are plain
+        strings ready to tokenize.
+
+    Raises
+    ------
+    FileNotFoundError
+        When the annotations file is missing.
+    KeyError
+        When a stimulus has no caption entry or the requested
+        ``generator_key`` is absent.
+    """
+    root_path = _resolve_root(root)
+    json_path = root_path / CAPTIONS_SUBPATH
+    if not json_path.exists():
+        raise FileNotFoundError(
+            f"expected captions at {json_path}. Download the "
+            "derivatives/stimuli_metadata folder from OpenNeuro ds005165 first."
+        )
+    with json_path.open("r", encoding="utf-8") as f:
+        ann = json.load(f)
+
+    paths = list_stimulus_paths(root)
+    out: list[str] = []
+    for p in paths:
+        stem = p.stem
+        if stem not in ann:
+            raise KeyError(f"no caption entry for stimulus {stem!r} in {json_path}")
+        entry = ann[stem]
+        if generator_key not in entry:
+            raise KeyError(
+                f"generator {generator_key!r} missing for {stem!r}; "
+                f"available: {list(entry)}"
+            )
+        caps = entry[generator_key]
+        if not caps:
+            raise KeyError(f"empty caption list for {stem!r}")
+        if join:
+            out.append(" ".join(caps))
+        else:
+            if caption_index >= len(caps):
+                raise IndexError(
+                    f"caption_index={caption_index} out of range for {stem!r} "
+                    f"(only {len(caps)} captions available)"
+                )
+            out.append(caps[caption_index])
+    return out
+
+
+def middle_frame_paths(
+    root: str | os.PathLike | None = None,
+    suffix: str = ".jpg",
+) -> list[Path]:
+    """Return per-stimulus middle-frame image paths, aligned with ``list_stimulus_paths``.
+
+    Image models (CLIP, DINOv2, SigLIP, PaliGemma) use the middle frame of
+    each clip for alignment benchmarks. The CSAIL stimulus archive places
+    these at ``stimulus_set/frames_middle/<stem>.jpg``. Order matches
+    ``list_stimulus_paths`` so a row-wise concatenation with vision or text
+    features stays stable.
+    """
+    root_path = _resolve_root(root)
+    frames_root = root_path / "stimulus_set" / "frames_middle"
+    if not frames_root.is_dir():
+        raise FileNotFoundError(
+            f"expected middle-frame JPGs at {frames_root}. Download "
+            "stimulus_set.zip from CSAIL and extract into the dataset root."
+        )
+    paths = []
+    for video_path in list_stimulus_paths(root):
+        frame_path = frames_root / f"{video_path.stem}{suffix}"
+        if not frame_path.exists():
+            raise FileNotFoundError(f"missing middle frame for {video_path.stem}: {frame_path}")
+        paths.append(frame_path)
+    return paths
 
 
 def load_subject(
