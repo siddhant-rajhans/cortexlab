@@ -155,6 +155,135 @@ def test_roi_summary_without_ceiling_unchanged():
     assert "full_r2" in row
 
 
+# --------------------------------------------------------------------------- #
+# permutation test                                                            #
+# --------------------------------------------------------------------------- #
+
+def test_permutation_test_produces_small_p_for_true_signal():
+    """When a modality genuinely drives voxels, permuting its test-time
+    rows should make those voxels' delta_R^2 shrink, so the observed
+    delta should sit near the top of the null distribution and the
+    corresponding p-values should be small."""
+    train, test, y_tr, y_te, assignments = _synth_multimodal(noise=0.05)
+    result = run_modality_lesion(
+        train, test, y_tr, y_te,
+        alphas=[1e-2, 1.0, 1e2], cv=3, mask_strategy="zero",
+        n_permutations=200, permutation_seed=0,
+    )
+    assert result.p_values is not None
+    assert result.n_permutations == 200
+    # For each modality's true voxels, at least most should be significant.
+    for m, sl in assignments.items():
+        p_m = result.p_values[m][sl.start:sl.stop].cpu().numpy()
+        frac_sig = (p_m < 0.05).mean()
+        assert frac_sig > 0.5, (
+            f"modality {m}: expected most true voxels significant, "
+            f"got frac_sig={frac_sig:.2f}, p={p_m}"
+        )
+
+
+def test_permutation_test_large_p_for_noise_voxels():
+    """Voxels that don't depend on modality m should have p-values that
+    are NOT uniformly tiny. We allow some leakage through ridge
+    regularization but demand it doesn't look like a clean signal."""
+    train, test, y_tr, y_te, assignments = _synth_multimodal(noise=0.05)
+    result = run_modality_lesion(
+        train, test, y_tr, y_te,
+        alphas=[1.0], cv=2, mask_strategy="zero",
+        n_permutations=200, permutation_seed=1,
+    )
+    text_sl = assignments["text"]
+    for m in ("audio", "video"):
+        p_m = result.p_values[m][text_sl.start:text_sl.stop].cpu().numpy()
+        frac_sig = (p_m < 0.05).mean()
+        assert frac_sig <= 0.5, (
+            f"null-modality {m} on text voxels: too many false positives "
+            f"(frac_sig={frac_sig:.2f})"
+        )
+
+
+def test_permutation_test_zero_permutations_keeps_p_none():
+    train, test, y_tr, y_te, _ = _synth_multimodal()
+    result = run_modality_lesion(
+        train, test, y_tr, y_te,
+        alphas=[1.0], cv=2, mask_strategy="zero",
+        n_permutations=0,
+    )
+    assert result.p_values is None
+    assert result.n_permutations == 0
+
+
+def test_permutation_test_reproducible_with_seed():
+    """Same seed => identical p-values; different seed => different."""
+    train, test, y_tr, y_te, _ = _synth_multimodal()
+    kwargs = dict(
+        alphas=[1.0], cv=2, mask_strategy="zero",
+        n_permutations=50,
+    )
+    a = run_modality_lesion(train, test, y_tr, y_te,
+                            permutation_seed=7, **kwargs)
+    b = run_modality_lesion(train, test, y_tr, y_te,
+                            permutation_seed=7, **kwargs)
+    c = run_modality_lesion(train, test, y_tr, y_te,
+                            permutation_seed=13, **kwargs)
+    for m in a.modality_order:
+        assert torch.equal(a.p_values[m], b.p_values[m]), f"seed reproducibility broken for {m}"
+        assert not torch.equal(a.p_values[m], c.p_values[m])
+
+
+def test_permutation_p_values_respect_one_sided_bounds():
+    """All p-values live in [1/(B+1), 1] because of the Phipson-Smyth +1 smoothing."""
+    train, test, y_tr, y_te, _ = _synth_multimodal()
+    result = run_modality_lesion(
+        train, test, y_tr, y_te,
+        alphas=[1.0], cv=2, mask_strategy="zero",
+        n_permutations=10, permutation_seed=0,
+    )
+    expected_floor = 1.0 / (10 + 1)
+    for m in result.modality_order:
+        p = result.p_values[m]
+        assert (p >= expected_floor - 1e-6).all()
+        assert (p <= 1.0 + 1e-6).all()
+
+
+def test_roi_summary_exposes_permutation_columns():
+    """roi_summary should surface p-value aggregates per ROI when the
+    LesionResult has populated p_values."""
+    train, test, y_tr, y_te, _ = _synth_multimodal()
+    result = run_modality_lesion(
+        train, test, y_tr, y_te,
+        alphas=[1.0], cv=2, mask_strategy="zero",
+        n_permutations=50, permutation_seed=0,
+    )
+    rois = {
+        "text_roi":  np.array([0, 1, 2, 3]),
+        "audio_roi": np.array([4, 5, 6, 7]),
+        "video_roi": np.array([8, 9, 10, 11]),
+    }
+    summary = roi_summary(result, rois)
+    for roi_name in rois:
+        row = summary[roi_name]
+        for m in result.modality_order:
+            assert f"p_{m}_median" in row
+            assert f"frac_sig_{m}" in row
+            assert 0.0 <= row[f"p_{m}_median"] <= 1.0
+            assert 0.0 <= row[f"frac_sig_{m}"] <= 1.0
+    # The "own" modality should be at least as significant as the non-owner ones.
+    assert summary["text_roi"]["p_text_median"] <= summary["text_roi"]["p_audio_median"]
+    assert summary["audio_roi"]["p_audio_median"] <= summary["audio_roi"]["p_video_median"]
+
+
+def test_roi_summary_without_permutations_omits_p_columns():
+    train, test, y_tr, y_te, _ = _synth_multimodal()
+    result = run_modality_lesion(train, test, y_tr, y_te,
+                                 alphas=[1.0], cv=2, mask_strategy="zero")
+    summary = roi_summary(result, {"text_roi": np.array([0, 1, 2, 3])})
+    row = summary["text_roi"]
+    for m in result.modality_order:
+        assert f"p_{m}_median" not in row
+        assert f"frac_sig_{m}" not in row
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 def test_lesion_handles_cuda_device_end_to_end():
     """Regression test: y_test arrives on CPU, encoder moves inputs to

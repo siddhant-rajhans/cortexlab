@@ -66,6 +66,17 @@ class LesionResult:
         Number of held-out test stimuli used to score predictions.
     best_alpha
         Per-voxel selected ridge alpha (diagnostic).
+    p_values
+        When :func:`run_modality_lesion` is called with
+        ``n_permutations > 0``, ``p_values[m]`` is a ``(n_voxels,)``
+        float32 tensor of one-sided p-values for the null that
+        modality ``m``'s test-time features are uninformative
+        (constructed by row-permuting ``X_test[:, slice(m)]``).
+        Smaller values mean the observed ``delta_r2[m]`` is unlikely
+        under the null. ``None`` when no permutation test was run.
+    n_permutations
+        Number of random permutations used; 0 when no permutation test
+        was performed.
     """
 
     full_r2: torch.Tensor
@@ -75,6 +86,8 @@ class LesionResult:
     n_train: int
     n_test: int
     best_alpha: torch.Tensor = field(default_factory=lambda: torch.empty(0))
+    p_values: dict[str, torch.Tensor] | None = None
+    n_permutations: int = 0
 
 
 def run_modality_lesion(
@@ -87,6 +100,8 @@ def run_modality_lesion(
     mask_strategy: MaskStrategy = "zero",
     device: str | None = None,
     backend: str = "auto",
+    n_permutations: int = 0,
+    permutation_seed: int = 0,
 ) -> LesionResult:
     """Run the causal modality lesion protocol.
 
@@ -108,6 +123,17 @@ def run_modality_lesion(
         Torch device for the ridge solve.
     backend
         Ridge backend: ``"torch"``, ``"triton"``, or ``"auto"``.
+    n_permutations
+        If > 0, run a modality-wise label-permutation test against the
+        null that modality ``m``'s test features are uninformative. For
+        each of ``n_permutations`` random permutations, the rows of
+        ``X_test[:, slice(m)]`` are shuffled across stimuli (the encoder
+        is NOT refit) and the resulting ``delta_r2_null`` compared to
+        the observed ``delta_r2``. Per-voxel one-sided p-values
+        (``(count(null >= observed) + 1) / (n_permutations + 1)``) are
+        returned in ``LesionResult.p_values``.
+    permutation_seed
+        RNG seed for reproducible permutations.
 
     Returns
     -------
@@ -180,6 +206,7 @@ def run_modality_lesion(
     # modalities. We keep the original encoder and ask "what if this
     # modality had been absent at inference time?".
     delta: dict[str, torch.Tensor] = {}
+    r2_ablated: dict[str, torch.Tensor] = {}
     for m in modality_order:
         X_test_ablated = X_test.clone()
         sl = slices[m]
@@ -187,11 +214,61 @@ def run_modality_lesion(
         Y_hat_m = enc.predict(X_test_ablated)
         r2_m = _r2_score(Y_test, Y_hat_m)
         delta[m] = r2_full - r2_m
+        r2_ablated[m] = r2_m
         logger.info(
             "  lesion %s: mean dR^2 = %+.4f (top quintile %+.4f)",
             m, delta[m].mean().item(),
             delta[m].quantile(0.8).item(),
         )
+
+    # Optional permutation test: shuffle the test-time stimulus order of
+    # modality m's feature block only (leaving the other modalities' rows
+    # intact) and re-evaluate. Under the null "modality m adds nothing at
+    # test time", delta_null should be distributed around delta_observed;
+    # under the alternative, delta_observed is much larger.
+    p_values: dict[str, torch.Tensor] | None = None
+    if n_permutations > 0:
+        if n_permutations < 0:
+            raise ValueError(f"n_permutations must be >= 0, got {n_permutations}")
+        n_test = X_test.shape[0]
+        n_vox = int(Y_test.shape[1])
+        # Seeded RNG on CPU so permutations are reproducible regardless
+        # of target_device (CUDA randperm with a generator is fiddly).
+        rng = torch.Generator(device="cpu").manual_seed(int(permutation_seed))
+        counts = {
+            m: torch.zeros(n_vox, dtype=torch.int32, device=target_device)
+            for m in modality_order
+        }
+        for b in range(n_permutations):
+            perm = torch.randperm(n_test, generator=rng).to(target_device)
+            for m in modality_order:
+                sl = slices[m]
+                X_perm = X_test.clone()
+                X_perm[:, sl] = X_test[perm][:, sl]
+                Y_hat_null = enc.predict(X_perm)
+                r2_full_null = _r2_score(Y_test, Y_hat_null)
+                # The ablated prediction is invariant under this
+                # row-permutation because the slice is replaced by a
+                # constant mask; reuse the observed r2_ablated[m].
+                delta_null = r2_full_null - r2_ablated[m]
+                counts[m] += (delta_null >= delta[m]).to(torch.int32)
+            if (b + 1) % max(1, n_permutations // 10) == 0:
+                logger.info(
+                    "  permutation %d / %d done",
+                    b + 1, n_permutations,
+                )
+        # "+1" smoothing so p is never exactly zero when none of the
+        # nulls exceeded observed (classic Phipson & Smyth 2010 fix).
+        p_values = {
+            m: (counts[m].to(torch.float32) + 1.0) / (n_permutations + 1.0)
+            for m in modality_order
+        }
+        for m in modality_order:
+            frac_sig = float((p_values[m] < 0.05).float().mean().item())
+            logger.info(
+                "  %s: median p = %.3f, fraction p<0.05 = %.3f",
+                m, float(p_values[m].median().item()), frac_sig,
+            )
 
     return LesionResult(
         full_r2=r2_full,
@@ -201,6 +278,8 @@ def run_modality_lesion(
         n_train=int(Y_train.shape[0]),
         n_test=int(Y_test.shape[0]),
         best_alpha=enc.best_alpha_,
+        p_values=p_values,
+        n_permutations=int(n_permutations),
     )
 
 
@@ -235,11 +314,17 @@ def roi_summary(
     dict
         ``{roi: {"full_r2": float, "dR2_<m>": float, ...}}``, values
         are ROI-mean scores. Adds ``full_r2_normalized`` and
-        ``ceiling_mean`` per ROI when ``ceiling`` is provided.
+        ``ceiling_mean`` per ROI when ``ceiling`` is provided. Adds
+        ``p_<m>_median`` and ``frac_sig_<m>`` (at alpha=0.05) per ROI
+        when ``result.p_values`` is populated by
+        :func:`run_modality_lesion` with ``n_permutations > 0``.
     """
     out: dict[str, dict[str, float]] = {}
     full = result.full_r2.cpu().numpy()
     dr2 = {m: result.delta_r2[m].cpu().numpy() for m in result.modality_order}
+    p_vals: dict[str, np.ndarray] | None = None
+    if result.p_values is not None:
+        p_vals = {m: result.p_values[m].cpu().numpy() for m in result.modality_order}
 
     if ceiling is not None:
         ceiling = np.asarray(ceiling)
@@ -252,6 +337,9 @@ def roi_summary(
         row = {"full_r2": float(np.mean(full[idx]))}
         for m in result.modality_order:
             row[f"dR2_{m}"] = float(np.mean(dr2[m][idx]))
+            if p_vals is not None:
+                row[f"p_{m}_median"] = float(np.median(p_vals[m][idx]))
+                row[f"frac_sig_{m}"] = float(np.mean(p_vals[m][idx] < 0.05))
         if ceiling is not None:
             c_roi = ceiling[idx]
             mask = c_roi > min_ceiling
