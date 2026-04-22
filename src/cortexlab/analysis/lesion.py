@@ -207,6 +207,8 @@ def run_modality_lesion(
 def roi_summary(
     result: LesionResult,
     roi_indices: Mapping[str, np.ndarray],
+    ceiling: np.ndarray | None = None,
+    min_ceiling: float = 0.01,
 ) -> dict[str, dict[str, float]]:
     """Aggregate a LesionResult over ROIs.
 
@@ -217,20 +219,48 @@ def roi_summary(
     roi_indices
         Mapping ROI name to numpy array of voxel indices (as in the
         project's ``roi_indices`` fixture).
+    ceiling
+        Optional per-voxel noise ceiling in R^2 space, shape
+        ``(n_voxels,)``. When provided, each ROI row gains a
+        ``full_r2_normalized`` entry (model R^2 divided by ceiling per
+        voxel, averaged over the ROI) and a ``ceiling_mean`` entry so
+        downstream tables can report both raw and ceiling-normalized
+        scores.
+    min_ceiling
+        Voxels with ceiling below this threshold are dropped from the
+        normalized mean to avoid division instability.
 
     Returns
     -------
     dict
         ``{roi: {"full_r2": float, "dR2_<m>": float, ...}}``, values
-        are ROI-mean scores.
+        are ROI-mean scores. Adds ``full_r2_normalized`` and
+        ``ceiling_mean`` per ROI when ``ceiling`` is provided.
     """
     out: dict[str, dict[str, float]] = {}
     full = result.full_r2.cpu().numpy()
     dr2 = {m: result.delta_r2[m].cpu().numpy() for m in result.modality_order}
+
+    if ceiling is not None:
+        ceiling = np.asarray(ceiling)
+        if ceiling.shape != full.shape:
+            raise ValueError(
+                f"ceiling shape {ceiling.shape} does not match full_r2 {full.shape}"
+            )
+
     for roi, idx in roi_indices.items():
         row = {"full_r2": float(np.mean(full[idx]))}
         for m in result.modality_order:
             row[f"dR2_{m}"] = float(np.mean(dr2[m][idx]))
+        if ceiling is not None:
+            c_roi = ceiling[idx]
+            mask = c_roi > min_ceiling
+            if mask.any():
+                normalized = full[idx][mask] / c_roi[mask]
+                row["full_r2_normalized"] = float(np.mean(normalized))
+            else:
+                row["full_r2_normalized"] = float("nan")
+            row["ceiling_mean"] = float(np.mean(c_roi))
         out[roi] = row
     return out
 

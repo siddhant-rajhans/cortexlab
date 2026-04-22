@@ -41,6 +41,7 @@ import argparse
 import json
 import logging
 import time
+from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
 
@@ -101,6 +102,18 @@ def _parse_args() -> argparse.Namespace:
     ap.add_argument("--parcellation-rois", type=str, default=None,
                     help="Comma-separated ROI names to include. None uses the "
                          "DEFAULT_HCP_MMP_ROIS set from cortexlab.data.parcellations.")
+    ap.add_argument("--noise-ceiling", type=str, default="none",
+                    choices=["none", "bold-moments", "inter-subject"],
+                    help="Source of per-voxel noise ceiling used to report "
+                         "normalized R^2. 'bold-moments' loads the authors' "
+                         "pre-computed per-subject n-10 ceiling. 'inter-subject' "
+                         "computes the leave-one-subject-out ceiling from the "
+                         "loaded subjects (requires >=2). 'none' skips.")
+    ap.add_argument("--noise-ceiling-n", type=int, default=10,
+                    help="The 'n' suffix of the BOLD Moments ceiling pickle.")
+    ap.add_argument("--noise-ceiling-split", type=str, default="test",
+                    choices=["train", "test"],
+                    help="Which split's on-disk ceiling to load from BOLD Moments.")
     return ap.parse_args()
 
 
@@ -223,8 +236,15 @@ def run_one_subject(
     mask: str,
     device: str,
     backend: str,
+    ceiling: np.ndarray | None = None,
 ) -> dict:
-    """Fit encoder, run lesion, summarize over ROIs."""
+    """Fit encoder, run lesion, summarize over ROIs.
+
+    When ``ceiling`` is provided it is a per-voxel R^2 ceiling aligned
+    with ``rec["y_test"]``'s voxel axis; it flows into
+    :func:`roi_summary` so each ROI row gains a ``full_r2_normalized``
+    column and the top-level summary gains a ``full_r2_normalized_mean``.
+    """
     t0 = time.perf_counter()
     result = run_modality_lesion(
         rec["features_train"], rec["features_test"],
@@ -235,8 +255,8 @@ def run_one_subject(
     elapsed = time.perf_counter() - t0
     logger.info("subject %s: lesion done in %.1fs", rec["subject_id"], elapsed)
 
-    summary = roi_summary(result, rec["roi_indices"])
-    return {
+    summary = roi_summary(result, rec["roi_indices"], ceiling=ceiling)
+    payload = {
         "subject_id": rec["subject_id"],
         "elapsed_sec": elapsed,
         "n_train": result.n_train,
@@ -250,7 +270,18 @@ def run_one_subject(
             for m in result.modality_order
         },
         "modality_order": result.modality_order,
-    }, result
+    }
+    if ceiling is not None:
+        full_np = result.full_r2.cpu().numpy()
+        mask_vox = ceiling > 0.01
+        if mask_vox.any():
+            payload["full_r2_normalized_mean"] = float(
+                (full_np[mask_vox] / ceiling[mask_vox]).mean()
+            )
+        else:
+            payload["full_r2_normalized_mean"] = float("nan")
+        payload["ceiling_mean"] = float(ceiling.mean())
+    return payload, result
 
 
 def run_study(
@@ -269,6 +300,7 @@ def run_study(
     output_dir.mkdir(parents=True, exist_ok=True)
     per_subject = []
     lesion_objs: dict[int, LesionResult] = {}
+    roi_by_subject: dict[int, Mapping[str, np.ndarray]] = {}
     responses_for_ceiling = []
 
     # Parcellation is shared across subjects; load once. Mock mode keeps
@@ -276,6 +308,21 @@ def run_study(
     parcellation = None if mock else _resolve_parcellation(cfg)
     if parcellation is not None:
         logger.info("parcellation loaded: %d ROIs", len(parcellation))
+
+    # Pre-load per-subject on-disk ceilings when requested. For the
+    # inter-subject ceiling we have to wait until all responses are in
+    # memory; it is applied in a post-processing pass below.
+    ceiling_source = (cfg.get("noise_ceiling") or "none") if not mock else "none"
+    ondisk_ceilings: dict[int, np.ndarray] = {}
+    if ceiling_source == "bold-moments" and not mock:
+        from cortexlab.data.studies.lahner2024bold import load_noise_ceiling  # lazy
+        nc_split = cfg.get("noise_ceiling_split") or "test"
+        nc_n = int(cfg.get("noise_ceiling_n") or 10)
+        for sid in subject_ids:
+            ondisk_ceilings[sid] = load_noise_ceiling(
+                subject_id=sid, root=cfg.get("data_root"),
+                split=nc_split, n=nc_n,
+            )
 
     for sid in subject_ids:
         logger.info("loading subject %d", sid)
@@ -287,24 +334,40 @@ def run_study(
         summary, lesion = run_one_subject(
             rec, alphas=alphas, cv=cv, mask=mask,
             device=device, backend=backend,
+            ceiling=ondisk_ceilings.get(sid),
         )
         per_subject.append(summary)
         lesion_objs[sid] = lesion
+        roi_by_subject[sid] = rec["roi_indices"]
         responses_for_ceiling.append(rec["y_test"])
 
-    # Group-level noise ceiling (only meaningful with multiple subjects).
+    # Inter-subject ceiling: computed post-hoc from the loaded responses.
+    # Only runs when explicitly requested (or as a legacy fallback when
+    # more than one subject is loaded and no ceiling source was specified).
     ceiling_mean = None
-    if len(subject_ids) >= 2:
+    want_inter = ceiling_source == "inter-subject" or (
+        ceiling_source == "none" and len(subject_ids) >= 2 and not mock
+    )
+    if want_inter and len(subject_ids) >= 2:
         stack = np.stack(responses_for_ceiling, axis=0)  # (S, n_test, n_vox)
         if stack.shape[0] >= 2:
             ceil = inter_subject_ceiling(stack)
             ceiling_mean = float(ceil.mean())
             np.save(output_dir / "noise_ceiling.npy", ceil)
-            # Re-report normalized scores per subject.
+            # Re-report normalized scores per subject using the whole-group ceiling.
             for s_summary, sid in zip(per_subject, subject_ids):
                 full_r2 = lesion_objs[sid].full_r2.cpu().numpy()
                 normalized = normalize_by_ceiling(full_r2, ceil)
                 s_summary["full_r2_ceiling_normalized_mean"] = float(normalized.mean())
+                # Refresh the per-ROI table with the inter-subject ceiling so
+                # downstream plots don't mix the on-disk and computed variants.
+                s_summary["roi_summary"] = roi_summary(
+                    lesion_objs[sid], roi_by_subject[sid], ceiling=ceil,
+                )
+
+    # Persist per-subject on-disk ceilings for downstream notebooks.
+    for sid, ceiling in ondisk_ceilings.items():
+        np.save(output_dir / f"subject_{sid:02d}_noise_ceiling.npy", ceiling)
 
     manifest = {
         "n_subjects": len(subject_ids),
@@ -318,6 +381,7 @@ def run_study(
         "mock": mock,
         "results": per_subject,
         "group_ceiling_mean": ceiling_mean,
+        "noise_ceiling_source": ceiling_source,
     }
     (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
 
@@ -361,6 +425,12 @@ def main() -> None:
         cfg["lh_annot"] = args.lh_annot
     if args.rh_annot is not None:
         cfg["rh_annot"] = args.rh_annot
+    if args.noise_ceiling:
+        cfg["noise_ceiling"] = args.noise_ceiling
+    if args.noise_ceiling_n is not None:
+        cfg["noise_ceiling_n"] = args.noise_ceiling_n
+    if args.noise_ceiling_split:
+        cfg["noise_ceiling_split"] = args.noise_ceiling_split
     if args.parcellation_rois:
         cfg["parcellation_rois"] = [
             r.strip() for r in args.parcellation_rois.split(",") if r.strip()
