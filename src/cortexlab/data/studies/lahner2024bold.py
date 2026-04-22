@@ -474,6 +474,132 @@ def load_subject(
     }
 
 
+NOISE_CEILING_FILENAME_TEMPLATE: tp.Final[str] = (
+    "sub-{subject_id:02d}_organized_noiseceiling_task-{split}_hemi-{hemi}_n-{n}.pkl"
+)
+"""Filename convention used by the BOLD Moments authors for pre-computed
+noise ceilings, as shipped under ``prepared_betas/`` alongside the betas.
+Both the ``n-10`` (all subjects) and ``n-k`` (subset) variants follow this
+template."""
+
+
+def load_noise_ceiling(
+    subject_id: int,
+    root: str | os.PathLike | None = None,
+    split: str = "test",
+    n: int = 10,
+) -> np.ndarray:
+    """Load the BOLD Moments on-disk noise ceiling for one subject.
+
+    The Lahner 2024 release ships pre-computed noise ceilings as
+    per-hemisphere pickles alongside the prepared betas. Each pickle holds
+    a 1-D array of length :data:`N_VERTICES_PER_HEMI` (163842) with the
+    per-vertex ceiling in ``R^2`` (squared Pearson correlation) space,
+    computed across ``n`` subjects. The ``n=10`` variant is the default
+    and is what ceiling-normalized model scores should be compared
+    against.
+
+    Parameters
+    ----------
+    subject_id
+        1 through 10. The noise ceiling is per-subject because it uses a
+        leave-one-out construction against the other ``n-1`` subjects'
+        mean response.
+    root
+        Dataset root. Falls back to ``CORTEXLAB_DATA`` when None, same
+        resolution rules as :func:`load_subject`.
+    split
+        ``"train"`` or ``"test"``. Typically ``"test"`` is the only one
+        used in practice, because the 102-clip test split's 10
+        repetitions make the ceiling estimator robust.
+    n
+        The ``n`` suffix in the filename (subjects used to build the
+        ceiling). BOLD Moments ships ``n=10``.
+
+    Returns
+    -------
+    np.ndarray
+        Shape ``(2 * N_VERTICES_PER_HEMI,)`` = ``(327684,)``, dtype
+        ``float32``. Left hemisphere first, right hemisphere second,
+        matching the vertex layout used by :func:`load_subject`.
+
+    Raises
+    ------
+    FileNotFoundError
+        If either per-hemisphere pickle is missing.
+    ValueError
+        If the loaded array has the wrong shape.
+
+    Notes
+    -----
+    The on-disk ceiling and :func:`cortexlab.analysis.noise_ceiling.inter_subject_ceiling`
+    compute essentially the same quantity. Use the on-disk file when you
+    want the authors' canonical value; use the in-memory helper when you
+    want the ceiling restricted to the subjects you actually loaded.
+    """
+    if split not in ("train", "test"):
+        raise ValueError(f"split must be 'train' or 'test'; got {split!r}")
+
+    root_path = _resolve_root(root)
+    betas_root = root_path / BETAS_SUBPATH / f"sub-{subject_id:02d}" / "prepared_betas"
+    if not betas_root.is_dir():
+        raise FileNotFoundError(
+            f"expected prepared betas under {betas_root}; cannot find noise ceiling."
+        )
+
+    hemi_arrays: list[np.ndarray] = []
+    for hemi in ("left", "right"):
+        fname = NOISE_CEILING_FILENAME_TEMPLATE.format(
+            subject_id=subject_id, split=split, hemi=hemi, n=n,
+        )
+        fp = betas_root / fname
+        if not fp.exists():
+            raise FileNotFoundError(
+                f"missing noise-ceiling file {fp}. "
+                f"Expected the Lahner 2024 convention {NOISE_CEILING_FILENAME_TEMPLATE!r}."
+            )
+        with fp.open("rb") as f:
+            obj = pkl.load(f)
+        arr = _unwrap_ceiling_payload(obj)
+        if arr.shape != (N_VERTICES_PER_HEMI,):
+            raise ValueError(
+                f"{fp.name}: expected ceiling shape ({N_VERTICES_PER_HEMI},), "
+                f"got {arr.shape}"
+            )
+        hemi_arrays.append(arr.astype(np.float32, copy=False))
+
+    ceiling = np.concatenate(hemi_arrays, axis=0)
+    logger.info(
+        "loaded noise ceiling for sub-%02d/%s (n=%d): mean=%.3f, median=%.3f",
+        subject_id, split, n, float(ceiling.mean()), float(np.median(ceiling)),
+    )
+    return ceiling
+
+
+def _unwrap_ceiling_payload(obj: tp.Any) -> np.ndarray:
+    """Coerce a pickled ceiling object to a 1-D numpy array.
+
+    The BOLD Moments release stores the ceiling straight as a numpy array
+    in some distributions and as a single-element tuple in others (the
+    pickled container inherits the author's intermediate processing
+    layout). Accept either and anything that exposes an ``.array``-like
+    view; raise ``TypeError`` otherwise so the user sees a clear message
+    instead of a numpy shape error three layers down.
+    """
+    if isinstance(obj, np.ndarray):
+        arr = obj
+    elif isinstance(obj, (tuple, list)) and obj:
+        arr = np.asarray(obj[0])
+    elif hasattr(obj, "__array__"):
+        arr = np.asarray(obj)
+    else:
+        raise TypeError(
+            f"unexpected noise-ceiling payload type {type(obj).__name__}; "
+            "expected numpy array or tuple whose first element is an array."
+        )
+    return np.squeeze(arr)
+
+
 class Lahner2024Bold(study.Study):
     device: tp.ClassVar[str] = "Fmri"
     dataset_name: tp.ClassVar[str] = "BOLD Moments"

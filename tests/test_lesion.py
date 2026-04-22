@@ -109,6 +109,52 @@ def test_lesion_rejects_single_modality():
                             np.zeros((5, 3), dtype=np.float32))
 
 
+def test_roi_summary_with_ceiling_adds_normalized_column():
+    """Ceiling-aware roi_summary should report both raw and normalized
+    per-ROI R^2, and should skip voxels whose ceiling falls below
+    ``min_ceiling``.
+    """
+    train, test, y_tr, y_te, _ = _synth_multimodal()
+    result = run_modality_lesion(train, test, y_tr, y_te,
+                                 alphas=[1.0], cv=2, mask_strategy="zero")
+    rois = {"text_roi": np.array([0, 1, 2, 3])}
+    # Build a ceiling of the right length where two voxels are well below
+    # the threshold; the other two sit at 0.5 so normalized = full_r2 / 0.5.
+    n_vox = result.full_r2.shape[0]
+    ceiling = np.full(n_vox, 0.5, dtype=np.float32)
+    ceiling[0] = 0.0         # dropped
+    ceiling[1] = 0.001       # below min_ceiling
+    summary = roi_summary(result, rois, ceiling=ceiling)
+
+    assert "full_r2_normalized" in summary["text_roi"]
+    assert "ceiling_mean" in summary["text_roi"]
+    # Normalized average should only average across voxels 2 and 3.
+    full = result.full_r2.cpu().numpy()
+    expected = float((full[2:4] / 0.5).mean())
+    assert abs(summary["text_roi"]["full_r2_normalized"] - expected) < 1e-6
+
+
+def test_roi_summary_rejects_mismatched_ceiling_shape():
+    train, test, y_tr, y_te, _ = _synth_multimodal()
+    result = run_modality_lesion(train, test, y_tr, y_te,
+                                 alphas=[1.0], cv=2, mask_strategy="zero")
+    bad_ceiling = np.zeros(result.full_r2.shape[0] + 5, dtype=np.float32)
+    with pytest.raises(ValueError, match="shape"):
+        roi_summary(result, {"x": np.array([0])}, ceiling=bad_ceiling)
+
+
+def test_roi_summary_without_ceiling_unchanged():
+    """Backward compat: calls without ceiling return the pre-existing schema."""
+    train, test, y_tr, y_te, _ = _synth_multimodal()
+    result = run_modality_lesion(train, test, y_tr, y_te,
+                                 alphas=[1.0], cv=2, mask_strategy="zero")
+    summary = roi_summary(result, {"text_roi": np.array([0, 1])})
+    row = summary["text_roi"]
+    assert "full_r2_normalized" not in row
+    assert "ceiling_mean" not in row
+    assert "full_r2" in row
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 def test_lesion_handles_cuda_device_end_to_end():
     """Regression test: y_test arrives on CPU, encoder moves inputs to
