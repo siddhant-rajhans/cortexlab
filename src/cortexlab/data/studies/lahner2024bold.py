@@ -42,6 +42,7 @@ Download Requirements:
 """
 
 import json
+import logging
 import os
 import pickle as pkl
 import typing as tp
@@ -52,6 +53,8 @@ import numpy as np
 import pandas as pd
 from neuralset.events import study
 from neuralset.utils import get_bids_filepath, get_masked_bold_image, read_bids_events
+
+logger = logging.getLogger(__name__)
 
 STIMULI_SUBPATH: tp.Final[str] = "stimuli/stimulus_set/stimuli"
 """Path inside a BOLD Moments data root that holds the ``train/`` and ``test/`` video directories."""
@@ -257,9 +260,12 @@ def middle_frame_paths(
 
     Image models (CLIP, DINOv2, SigLIP, PaliGemma) use the middle frame of
     each clip for alignment benchmarks. The CSAIL stimulus archive places
-    these at ``stimulus_set/frames_middle/<stem>.jpg``. Order matches
-    ``list_stimulus_paths`` so a row-wise concatenation with vision or text
-    features stays stable.
+    these at ``stimulus_set/frames_middle/`` but with a naming convention
+    that carries the extracted frame index in the filename, e.g.
+    ``0001_45_90.jpg`` for stimulus 0001 (frame 45 of 90). This helper
+    tries the bare ``<stem>.jpg`` first and then falls back to the
+    ``<stem>_*.jpg`` glob, so both a vanilla CSAIL extraction and a
+    simplified symlink tree work. Order matches ``list_stimulus_paths``.
     """
     root_path = _resolve_root(root)
     frames_root = root_path / "stimulus_set" / "frames_middle"
@@ -270,10 +276,26 @@ def middle_frame_paths(
         )
     paths = []
     for video_path in list_stimulus_paths(root):
-        frame_path = frames_root / f"{video_path.stem}{suffix}"
-        if not frame_path.exists():
-            raise FileNotFoundError(f"missing middle frame for {video_path.stem}: {frame_path}")
-        paths.append(frame_path)
+        stem = video_path.stem
+        bare = frames_root / f"{stem}{suffix}"
+        if bare.exists():
+            paths.append(bare)
+            continue
+        matches = sorted(frames_root.glob(f"{stem}_*{suffix}"))
+        if not matches:
+            raise FileNotFoundError(
+                f"missing middle frame for {stem} under {frames_root}. "
+                f"Tried {bare.name} and {stem}_*{suffix}."
+            )
+        # BOLD Moments ships exactly one middle-frame file per stimulus.
+        # If more than one matches, take the first in sorted order and
+        # continue; a warning keeps the surprise visible without aborting.
+        if len(matches) > 1:
+            logger.warning(
+                "multiple middle-frame candidates for %s: %s. Using %s.",
+                stem, [m.name for m in matches], matches[0].name,
+            )
+        paths.append(matches[0])
     return paths
 
 

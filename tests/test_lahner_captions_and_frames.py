@@ -152,3 +152,56 @@ def test_middle_frame_paths_missing_one_frame(tmp_path: Path):
     _make_middle_frames(tmp_path, stems[:-1])  # skip the last stem
     with pytest.raises(FileNotFoundError, match="missing middle frame"):
         middle_frame_paths(tmp_path)
+
+
+def test_middle_frame_paths_resolves_csail_suffix(tmp_path: Path):
+    """CSAIL ships frames named ``<stem>_<frame_idx>_<total>.jpg`` rather
+    than the bare ``<stem>.jpg`` the docstring implies. The helper should
+    glob for the CSAIL convention when the bare filename is absent.
+    """
+    _make_stimuli_tree(tmp_path, n_train=3, n_test=2)
+    frames_root = tmp_path / "stimulus_set" / "frames_middle"
+    frames_root.mkdir(parents=True, exist_ok=True)
+    for i in range(1, 6):
+        (frames_root / f"{i:04d}_45_90.jpg").write_bytes(b"\xff\xd8\xff\xd9")
+    frames = middle_frame_paths(tmp_path)
+    assert len(frames) == 5
+    assert [f.name for f in frames] == [f"{i:04d}_45_90.jpg" for i in range(1, 6)]
+
+
+def test_middle_frame_paths_prefers_bare_over_glob(tmp_path: Path):
+    """When both a symlink named ``<stem>.jpg`` and the CSAIL-style
+    ``<stem>_<idx>.jpg`` exist, the bare file wins so user-built symlink
+    trees are respected and no warning fires.
+    """
+    # Use 1 train + 1 test to satisfy list_stimulus_paths' requirement
+    # that both split directories are populated.
+    _make_stimuli_tree(tmp_path, n_train=1, n_test=1)
+    frames_root = tmp_path / "stimulus_set" / "frames_middle"
+    frames_root.mkdir(parents=True, exist_ok=True)
+    (frames_root / "0001_45_90.jpg").write_bytes(b"\xff\xd8\xff\xd9")
+    (frames_root / "0001.jpg").write_bytes(b"\xff\xd8\xff\xd9")
+    (frames_root / "0002_45_90.jpg").write_bytes(b"\xff\xd8\xff\xd9")
+    frames = middle_frame_paths(tmp_path)
+    assert len(frames) == 2
+    # Stem 0001 has a bare form; the helper must prefer it over the glob.
+    assert frames[0].name == "0001.jpg"
+    assert frames[1].name == "0002_45_90.jpg"
+
+
+def test_middle_frame_paths_warns_on_ambiguous_glob(tmp_path: Path, caplog):
+    """Two CSAIL-style files for the same stem is a data bug; pick the
+    first sorted match and warn so the surprise is visible.
+    """
+    import logging as stdlib_logging
+    _make_stimuli_tree(tmp_path, n_train=1, n_test=1)
+    frames_root = tmp_path / "stimulus_set" / "frames_middle"
+    frames_root.mkdir(parents=True, exist_ok=True)
+    (frames_root / "0001_30_60.jpg").write_bytes(b"\xff\xd8\xff\xd9")
+    (frames_root / "0001_45_90.jpg").write_bytes(b"\xff\xd8\xff\xd9")
+    (frames_root / "0002_45_90.jpg").write_bytes(b"\xff\xd8\xff\xd9")
+    with caplog.at_level(stdlib_logging.WARNING,
+                         logger="cortexlab.data.studies.lahner2024bold"):
+        frames = middle_frame_paths(tmp_path)
+    assert frames[0].name == "0001_30_60.jpg"   # sorted pick for stem 0001
+    assert any("multiple middle-frame" in r.message for r in caplog.records)
