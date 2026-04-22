@@ -49,6 +49,15 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--rh-annot", type=Path, required=True)
     ap.add_argument("--data-root", type=Path, default=None,
                     help="BOLD Moments dataset root; falls back to CORTEXLAB_DATA env.")
+    ap.add_argument("--ceiling-source", type=str, default="bold-moments",
+                    choices=["bold-moments", "file"],
+                    help="'bold-moments' loads per-subject n-10 pickles from "
+                         "the dataset; 'file' loads a single shared ceiling "
+                         "from --ceiling-file (e.g. a leave-one-out ceiling "
+                         "from a prior lesion run).")
+    ap.add_argument("--ceiling-file", type=Path, default=None,
+                    help="Path to a 1-D .npy ceiling of length 2*N_VERTICES_PER_HEMI "
+                         "(required when --ceiling-source=file).")
     ap.add_argument("--ceiling-n", type=int, default=10,
                     help="n suffix of the BOLD Moments ceiling pickle.")
     ap.add_argument("--ceiling-split", type=str, default="test",
@@ -90,6 +99,17 @@ def main() -> None:
     roi_indices = load_hcp_mmp_fsaverage(args.lh_annot, args.rh_annot)
     print(f"Loaded {len(roi_indices)} ROIs")
 
+    # A single shared ceiling (from a prior --ceiling-file) is loaded
+    # once; per-subject ceilings are loaded inside the loop.
+    shared_ceiling: np.ndarray | None = None
+    if args.ceiling_source == "file":
+        if args.ceiling_file is None:
+            raise SystemExit("--ceiling-source=file requires --ceiling-file")
+        if not args.ceiling_file.exists():
+            raise SystemExit(f"ceiling file not found: {args.ceiling_file}")
+        shared_ceiling = np.load(args.ceiling_file)
+        print(f"Loaded shared ceiling {shared_ceiling.shape} from {args.ceiling_file}")
+
     per_subject_rows: list[dict] = []
     for sid in manifest["subject_ids"]:
         npz_path = results_dir / f"subject_{sid:02d}_lesion.npz"
@@ -99,10 +119,13 @@ def main() -> None:
         npz = np.load(npz_path)
         full = npz["full_r2"]
         deltas = {m: npz[f"delta_{m}"] for m in modality_order}
-        ceiling = load_noise_ceiling(
-            subject_id=sid, root=str(data_root),
-            split=args.ceiling_split, n=args.ceiling_n,
-        )
+        if shared_ceiling is not None:
+            ceiling = shared_ceiling
+        else:
+            ceiling = load_noise_ceiling(
+                subject_id=sid, root=str(data_root),
+                split=args.ceiling_split, n=args.ceiling_n,
+            )
         for roi, idx in roi_indices.items():
             c = ceiling[idx]
             mask = c > 0.01
