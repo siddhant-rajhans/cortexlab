@@ -14,14 +14,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from cortexlab.data import parcellations as pmod
 from cortexlab.data.parcellations import (
     DEFAULT_HCP_MMP_ROIS,
     build_roi_indices,
-    load_hcp_mmp_fsaverage,
     load_hcp_mmp_from_freesurfer,
+    load_hcp_mmp_fsaverage,
 )
-from cortexlab.data import parcellations as pmod
-
 
 # --------------------------------------------------------------------------- #
 # default ROI set                                                             #
