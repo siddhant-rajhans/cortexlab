@@ -88,6 +88,19 @@ def _parse_args() -> argparse.Namespace:
     ap.add_argument("--modalities", type=str, default="vision,text",
                     help="Comma-separated modality names whose .npz files "
                          "live in --feature-cache.")
+    ap.add_argument("--parcellation", type=str, default="none",
+                    choices=["none", "hcp-mmp"],
+                    help="Parcellation to report ROI-level results against. "
+                         "'none' keeps a single 'all_cortex' bucket. "
+                         "'hcp-mmp' requires --lh-annot and --rh-annot.")
+    ap.add_argument("--lh-annot", type=str, default=None,
+                    help="Left-hemisphere FreeSurfer .annot file for the "
+                         "HCP-MMP (or compatible) parcellation.")
+    ap.add_argument("--rh-annot", type=str, default=None,
+                    help="Right-hemisphere FreeSurfer .annot file.")
+    ap.add_argument("--parcellation-rois", type=str, default=None,
+                    help="Comma-separated ROI names to include. None uses the "
+                         "DEFAULT_HCP_MMP_ROIS set from cortexlab.data.parcellations.")
     return ap.parse_args()
 
 
@@ -102,8 +115,33 @@ def _load_config(path: str | None) -> dict:
 # data loading                                                                #
 # --------------------------------------------------------------------------- #
 
+def _resolve_parcellation(cfg: dict) -> dict[str, np.ndarray] | None:
+    """Build the ``{roi_name: indices}`` dict from CLI/yaml config, or None.
+
+    Separated from ``_load_subject_data`` so the parcellation is loaded
+    exactly once and shared across subjects (the annot files are identical
+    for every subject on fsaverage).
+    """
+    kind = cfg.get("parcellation") or "none"
+    if kind == "none":
+        return None
+    if kind == "hcp-mmp":
+        from cortexlab.data.parcellations import load_hcp_mmp_fsaverage  # lazy
+        lh = cfg.get("lh_annot")
+        rh = cfg.get("rh_annot")
+        if not lh or not rh:
+            raise ValueError(
+                "parcellation=hcp-mmp requires --lh-annot and --rh-annot "
+                "(or the equivalent yaml keys lh_annot / rh_annot)."
+            )
+        rois = cfg.get("parcellation_rois")
+        return load_hcp_mmp_fsaverage(lh, rh, rois=rois)
+    raise ValueError(f"unknown parcellation {kind!r}")
+
+
 def _load_subject_data(
     subject_id: int, cfg: dict, pilot: int | None,
+    parcellation: dict[str, np.ndarray] | None = None,
 ) -> dict:
     """Load features and responses for one subject.
 
@@ -113,7 +151,9 @@ def _load_subject_data(
     data came from disk or from the mock generator.
 
     ``cfg`` is the merged configuration (YAML plus CLI overrides), so the
-    helper does not need to know which source set each field.
+    helper does not need to know which source set each field. ``parcellation``
+    is threaded through to ``load_subject`` so per-ROI aggregation is done
+    downstream in the orchestrator.
     """
     from cortexlab.data.studies.lahner2024bold import load_subject  # lazy
 
@@ -123,6 +163,7 @@ def _load_subject_data(
         root=cfg.get("data_root"),
         feature_cache=cfg.get("feature_cache"),
         modalities=tuple(modalities),
+        parcellation=parcellation,
         n_trimmed_stimuli=pilot,
     )
     return rec
@@ -230,9 +271,19 @@ def run_study(
     lesion_objs: dict[int, LesionResult] = {}
     responses_for_ceiling = []
 
+    # Parcellation is shared across subjects; load once. Mock mode keeps
+    # its synthetic per-modality ROI bucket regardless.
+    parcellation = None if mock else _resolve_parcellation(cfg)
+    if parcellation is not None:
+        logger.info("parcellation loaded: %d ROIs", len(parcellation))
+
     for sid in subject_ids:
         logger.info("loading subject %d", sid)
-        rec = _mock_subject_data(sid) if mock else _load_subject_data(sid, cfg, pilot)
+        rec = (
+            _mock_subject_data(sid)
+            if mock
+            else _load_subject_data(sid, cfg, pilot, parcellation=parcellation)
+        )
         summary, lesion = run_one_subject(
             rec, alphas=alphas, cv=cv, mask=mask,
             device=device, backend=backend,
@@ -304,6 +355,16 @@ def main() -> None:
         cfg["feature_cache"] = args.feature_cache
     if args.modalities:
         cfg["modalities"] = [m.strip() for m in args.modalities.split(",") if m.strip()]
+    if args.parcellation:
+        cfg["parcellation"] = args.parcellation
+    if args.lh_annot is not None:
+        cfg["lh_annot"] = args.lh_annot
+    if args.rh_annot is not None:
+        cfg["rh_annot"] = args.rh_annot
+    if args.parcellation_rois:
+        cfg["parcellation_rois"] = [
+            r.strip() for r in args.parcellation_rois.split(",") if r.strip()
+        ]
 
     alphas = [float(a) for a in args.alphas.split(",")]
 
