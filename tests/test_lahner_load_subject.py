@@ -21,7 +21,6 @@ from cortexlab.data.studies.lahner2024bold import (
     load_subject,
 )
 
-
 # --------------------------------------------------------------------------- #
 # fabricate a tiny on-disk BOLD Moments tree                                  #
 # --------------------------------------------------------------------------- #

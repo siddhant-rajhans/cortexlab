@@ -5,10 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 """BOLD Moments: 3T fMRI responses to short naturalistic videos.
 
-This study provides 3T BOLD fMRI data from 10 participants viewing brief (3-second) 
-naturalistic video clips. The dataset is designed to study neural responses to 
-dynamic visual events and includes rich metadata and annotations. The test set's high 
-repetition count (10 reps) enables reliability analysis and within-subject 
+This study provides 3T BOLD fMRI data from 10 participants viewing brief (3-second)
+naturalistic video clips. The dataset is designed to study neural responses to
+dynamic visual events and includes rich metadata and annotations. The test set's high
+repetition count (10 reps) enables reliability analysis and within-subject
 generalization studies.
 
 Experimental Design:
@@ -52,7 +52,6 @@ import numpy as np
 import pandas as pd
 from neuralset.events import study
 from neuralset.utils import get_bids_filepath, get_masked_bold_image, read_bids_events
-
 
 STIMULI_SUBPATH: tp.Final[str] = "stimuli/stimulus_set/stimuli"
 """Path inside a BOLD Moments data root that holds the ``train/`` and ``test/`` video directories."""
@@ -356,7 +355,7 @@ class Lahner2024Bold(study.Study):
         publisher = {Springer Science and Business Media LLC},
         author = {Lahner,  Benjamin and Dwivedi,  Kshitij and Iamshchinina,  Polina and Graumann,  Monika and Lascelles,  Alex and Roig,  Gemma and Gifford,  Alessandro Thomas and Pan,  Bowen and Jin,  SouYoung and Ratan Murty,  N. Apurva and Kay,  Kendrick and Oliva,  Aude and Cichy,  Radoslaw},
         year = {2024},
-        month = jul 
+        month = jul
     }
     """
     licence: tp.ClassVar[str] = "CC0"
