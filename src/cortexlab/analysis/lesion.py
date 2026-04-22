@@ -154,6 +154,16 @@ def run_modality_lesion(
         alphas=alphas or [1e-2, 1.0, 1e2, 1e4, 1e6],
         cv=cv, backend=backend, device=device,
     ).fit(X_train, Y_train)
+
+    # The encoder moves X/Y to `device` internally during fit, but Y_test
+    # was never passed through the encoder, so it is still on the caller's
+    # device (typically CPU). Predictions come back on the encoder's
+    # device, so align Y_test before scoring to avoid the
+    # "tensors on different devices" runtime error.
+    target_device = enc.coef_.device
+    X_test = X_test.to(target_device)
+    Y_test = Y_test.to(target_device)
+
     Y_hat_full = enc.predict(X_test)
     r2_full = _r2_score(Y_test, Y_hat_full)
 
