@@ -114,6 +114,12 @@ def _parse_args() -> argparse.Namespace:
     ap.add_argument("--noise-ceiling-split", type=str, default="test",
                     choices=["train", "test"],
                     help="Which split's on-disk ceiling to load from BOLD Moments.")
+    ap.add_argument("--permutations", type=int, default=0,
+                    help="If >0, run a row-permutation test per modality with "
+                         "this many shuffles; p-values land in roi_summary "
+                         "as p_<m>_median and frac_sig_<m>. 0 skips.")
+    ap.add_argument("--permutation-seed", type=int, default=0,
+                    help="RNG seed for reproducible permutations.")
     return ap.parse_args()
 
 
@@ -237,6 +243,8 @@ def run_one_subject(
     device: str,
     backend: str,
     ceiling: np.ndarray | None = None,
+    n_permutations: int = 0,
+    permutation_seed: int = 0,
 ) -> dict:
     """Fit encoder, run lesion, summarize over ROIs.
 
@@ -251,6 +259,8 @@ def run_one_subject(
         rec["y_train"], rec["y_test"],
         alphas=alphas, cv=cv, mask_strategy=mask,
         device=device, backend=backend,
+        n_permutations=n_permutations,
+        permutation_seed=permutation_seed,
     )
     elapsed = time.perf_counter() - t0
     logger.info("subject %s: lesion done in %.1fs", rec["subject_id"], elapsed)
@@ -281,6 +291,16 @@ def run_one_subject(
         else:
             payload["full_r2_normalized_mean"] = float("nan")
         payload["ceiling_mean"] = float(ceiling.mean())
+    if result.p_values is not None:
+        payload["n_permutations"] = result.n_permutations
+        payload["p_value_medians"] = {
+            m: float(result.p_values[m].median().item())
+            for m in result.modality_order
+        }
+        payload["frac_sig_at_05"] = {
+            m: float((result.p_values[m] < 0.05).float().mean().item())
+            for m in result.modality_order
+        }
     return payload, result
 
 
@@ -335,6 +355,8 @@ def run_study(
             rec, alphas=alphas, cv=cv, mask=mask,
             device=device, backend=backend,
             ceiling=ondisk_ceilings.get(sid),
+            n_permutations=int(cfg.get("permutations") or 0),
+            permutation_seed=int(cfg.get("permutation_seed") or 0),
         )
         per_subject.append(summary)
         lesion_objs[sid] = lesion
@@ -364,6 +386,9 @@ def run_study(
                 s_summary["roi_summary"] = roi_summary(
                     lesion_objs[sid], roi_by_subject[sid], ceiling=ceil,
                 )
+                # Re-attach per-ROI permutation fields (roi_summary
+                # re-reads result.p_values on every call, so this is a
+                # no-op when permutations=0).
 
     # Persist per-subject on-disk ceilings for downstream notebooks.
     for sid, ceiling in ondisk_ceilings.items():
@@ -387,13 +412,18 @@ def run_study(
 
     # Also save per-subject raw LesionResult arrays for downstream viz.
     for sid, lr in lesion_objs.items():
-        np.savez_compressed(
-            output_dir / f"subject_{sid:02d}_lesion.npz",
-            full_r2=lr.full_r2.cpu().numpy(),
+        arrays = {
+            "full_r2": lr.full_r2.cpu().numpy(),
+            "best_alpha": lr.best_alpha.cpu().numpy(),
             **{f"delta_{m}": lr.delta_r2[m].cpu().numpy()
                for m in lr.modality_order},
-            best_alpha=lr.best_alpha.cpu().numpy(),
-        )
+        }
+        if lr.p_values is not None:
+            arrays.update({
+                f"p_{m}": lr.p_values[m].cpu().numpy()
+                for m in lr.modality_order
+            })
+        np.savez_compressed(output_dir / f"subject_{sid:02d}_lesion.npz", **arrays)
 
     logger.info("wrote %d subject result(s) to %s",
                 len(subject_ids), output_dir)
@@ -435,6 +465,10 @@ def main() -> None:
         cfg["parcellation_rois"] = [
             r.strip() for r in args.parcellation_rois.split(",") if r.strip()
         ]
+    if args.permutations is not None:
+        cfg["permutations"] = args.permutations
+    if args.permutation_seed is not None:
+        cfg["permutation_seed"] = args.permutation_seed
 
     alphas = [float(a) for a in args.alphas.split(",")]
 
