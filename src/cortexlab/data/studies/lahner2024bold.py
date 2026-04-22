@@ -5,10 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 """BOLD Moments: 3T fMRI responses to short naturalistic videos.
 
-This study provides 3T BOLD fMRI data from 10 participants viewing brief (3-second) 
-naturalistic video clips. The dataset is designed to study neural responses to 
-dynamic visual events and includes rich metadata and annotations. The test set's high 
-repetition count (10 reps) enables reliability analysis and within-subject 
+This study provides 3T BOLD fMRI data from 10 participants viewing brief (3-second)
+naturalistic video clips. The dataset is designed to study neural responses to
+dynamic visual events and includes rich metadata and annotations. The test set's high
+repetition count (10 reps) enables reliability analysis and within-subject
 generalization studies.
 
 Experimental Design:
@@ -52,7 +52,6 @@ import numpy as np
 import pandas as pd
 from neuralset.events import study
 from neuralset.utils import get_bids_filepath, get_masked_bold_image, read_bids_events
-
 
 STIMULI_SUBPATH: tp.Final[str] = "stimuli/stimulus_set/stimuli"
 """Path inside a BOLD Moments data root that holds the ``train/`` and ``test/`` video directories."""
@@ -155,6 +154,190 @@ def _resolve_root(root: str | os.PathLike | None) -> Path:
     return p
 
 
+BETAS_SUBPATH: tp.Final[str] = "derivatives/versionB/fsaverage/GLM"
+"""Relative path under the dataset root containing the per-subject prepared betas."""
+
+N_TRAIN_STIMULI: tp.Final[int] = 1000
+N_TEST_STIMULI: tp.Final[int] = 102
+N_VERTICES_PER_HEMI: tp.Final[int] = 163842
+"""fsaverage7 surface vertex count per hemisphere."""
+
+
+def load_subject(
+    subject_id: int,
+    root: str | os.PathLike | None = None,
+    feature_cache: str | os.PathLike | None = None,
+    modalities: tp.Sequence[str] = ("vision", "text"),
+    parcellation: tp.Mapping[str, np.ndarray] | None = None,
+    n_trimmed_stimuli: int | None = None,
+) -> dict[str, tp.Any]:
+    """Load one subject's BOLD Moments betas together with matching features.
+
+    This is the thin glue between the on-disk GLMsingle prepared-betas pickle
+    format and the dict interface consumed by
+    :func:`cortexlab.analysis.lesion.run_modality_lesion` and other encoding
+    experiments in the repository.
+
+    Parameters
+    ----------
+    subject_id
+        Subject index, 1 through 10.
+    root
+        Path to the BOLD Moments dataset root. Falls back to ``CORTEXLAB_DATA``
+        when None. See :func:`list_stimulus_paths` for the resolution rules.
+    feature_cache
+        Directory containing one ``<modality>.npz`` per entry in ``modalities``.
+        Each file must have a ``features`` array of shape ``(1102, d_m)`` whose
+        row order matches :func:`list_stimulus_paths` (train clips 0001-1000
+        then test clips 0001-0102, both sorted by filename). When None, the
+        returned dict carries empty feature dicts and only the fMRI betas are
+        populated; callers can then attach their own features.
+    modalities
+        Which modality keys to load from ``feature_cache``. Each name must
+        correspond to a ``<name>.npz`` file when ``feature_cache`` is set.
+    parcellation
+        Optional mapping from ROI name to a numpy array of vertex indices into
+        the concatenated hemispheres (left hemisphere first, 0 through 163841;
+        right hemisphere second, 163842 through 327683). When None the function
+        returns a single ``{"all_cortex": arange(n_voxels)}`` entry, which lets
+        downstream aggregation work even without a parcellation. Users with an
+        HCP-MMP atlas or custom ROIs should supply it here.
+    n_trimmed_stimuli
+        For pilot runs, keep only the first N training stimuli to cut fit
+        time. ``None`` keeps all 1000. Test split is never trimmed.
+
+    Returns
+    -------
+    dict
+        Keys:
+
+        * ``subject_id`` (int)
+        * ``y_train`` ``(n_train, 2*163842)``, mean across repetitions
+        * ``y_test``  ``(102, 2*163842)``, mean across 10 repetitions
+        * ``features_train`` ``{modality: (n_train, d_m)}``
+        * ``features_test``  ``{modality: (102, d_m)}``
+        * ``stimulus_ids_train`` list of str, from the GLMsingle manifest
+        * ``stimulus_ids_test``  list of str
+        * ``roi_indices`` ``{roi_name: int_array}``
+
+    Raises
+    ------
+    FileNotFoundError
+        If a required beta file or feature cache file is missing.
+    ValueError
+        If the betas and features disagree about stimulus count.
+
+    Notes
+    -----
+    The pickle layout shipped by the BOLD Moments authors is a 2-tuple
+    ``(betas, stim_names)`` where ``betas`` has shape
+    ``(n_trials, n_reps, 163842)``. We average across the repetition axis
+    because downstream encoders regress on per-stimulus responses. If you want
+    per-trial analysis (e.g. reliability estimation), read the pickles
+    directly with :mod:`pickle` rather than this helper.
+    """
+    root_path = _resolve_root(root)
+    betas_root = root_path / BETAS_SUBPATH / f"sub-{subject_id:02d}" / "prepared_betas"
+    if not betas_root.is_dir():
+        raise FileNotFoundError(
+            f"expected prepared betas under {betas_root}. "
+            "Run the OpenNeuro download for ds005165 (versionB/fsaverage/GLM) first."
+        )
+
+    splits = [("train", N_TRAIN_STIMULI), ("test", N_TEST_STIMULI)]
+    y: dict[str, np.ndarray] = {}
+    stimulus_ids: dict[str, list[str]] = {}
+
+    for split, n_expected in splits:
+        hemi_arrays = []
+        stim_ref: list[str] | None = None
+        for hemi in ("left", "right"):
+            fp = (
+                betas_root
+                / f"sub-{subject_id:02d}_organized_betas_task-{split}_hemi-{hemi}_normalized.pkl"
+            )
+            if not fp.exists():
+                raise FileNotFoundError(f"missing beta file {fp}")
+            with fp.open("rb") as f:
+                obj = pkl.load(f)
+            betas, stims = obj[0], obj[1]
+            if betas.shape[0] != n_expected:
+                raise ValueError(
+                    f"{fp.name}: expected {n_expected} trials, got {betas.shape[0]}"
+                )
+            if betas.shape[-1] != N_VERTICES_PER_HEMI:
+                raise ValueError(
+                    f"{fp.name}: expected {N_VERTICES_PER_HEMI} vertices, "
+                    f"got {betas.shape[-1]}"
+                )
+            # Mean across repetition axis -> (n_trials, n_vertices).
+            hemi_arrays.append(np.asarray(betas, dtype=np.float32).mean(axis=1))
+            stim_list = [str(s) for s in stims]
+            if stim_ref is None:
+                stim_ref = stim_list
+            elif stim_list != stim_ref:
+                raise ValueError(
+                    f"{fp.name}: stimulus order disagrees between hemispheres"
+                )
+        assert stim_ref is not None
+        y[split] = np.concatenate(hemi_arrays, axis=1)
+        stimulus_ids[split] = stim_ref
+
+    # Optional pilot truncation on training split.
+    if n_trimmed_stimuli is not None and n_trimmed_stimuli < y["train"].shape[0]:
+        y["train"] = y["train"][:n_trimmed_stimuli]
+        stimulus_ids["train"] = stimulus_ids["train"][:n_trimmed_stimuli]
+
+    # Feature loading. The canonical stimulus order for feature caches is
+    # `list_stimulus_paths()` (train 0001-1000 sorted, then test 0001-0102
+    # sorted). Load once, split by the row counts dictated by the betas.
+    features_train: dict[str, np.ndarray] = {}
+    features_test: dict[str, np.ndarray] = {}
+    if feature_cache is not None:
+        cache = Path(feature_cache)
+        if not cache.is_dir():
+            raise FileNotFoundError(f"feature cache directory not found: {cache}")
+        n_train = y["train"].shape[0]
+        n_test = y["test"].shape[0]
+        for modality in modalities:
+            fp = cache / f"{modality}.npz"
+            if not fp.exists():
+                raise FileNotFoundError(
+                    f"feature file {fp} missing; expected an npz with key "
+                    "'features' of shape (1102, d) in list_stimulus_paths order."
+                )
+            arr = np.load(fp)["features"]
+            if arr.shape[0] != N_TRAIN_STIMULI + N_TEST_STIMULI:
+                raise ValueError(
+                    f"{fp.name}: expected {N_TRAIN_STIMULI + N_TEST_STIMULI} rows, "
+                    f"got {arr.shape[0]}"
+                )
+            # Training split was possibly trimmed; test is always the full 102.
+            features_train[modality] = np.asarray(arr[:n_train], dtype=np.float32)
+            features_test[modality] = np.asarray(
+                arr[N_TRAIN_STIMULI : N_TRAIN_STIMULI + n_test], dtype=np.float32,
+            )
+
+    n_voxels = y["train"].shape[1]
+    if parcellation is None:
+        roi_indices: dict[str, np.ndarray] = {
+            "all_cortex": np.arange(n_voxels, dtype=np.int64),
+        }
+    else:
+        roi_indices = {k: np.asarray(v, dtype=np.int64) for k, v in parcellation.items()}
+
+    return {
+        "subject_id": int(subject_id),
+        "y_train": y["train"],
+        "y_test": y["test"],
+        "features_train": features_train,
+        "features_test": features_test,
+        "stimulus_ids_train": stimulus_ids["train"],
+        "stimulus_ids_test": stimulus_ids["test"],
+        "roi_indices": roi_indices,
+    }
+
+
 class Lahner2024Bold(study.Study):
     device: tp.ClassVar[str] = "Fmri"
     dataset_name: tp.ClassVar[str] = "BOLD Moments"
@@ -172,7 +355,7 @@ class Lahner2024Bold(study.Study):
         publisher = {Springer Science and Business Media LLC},
         author = {Lahner,  Benjamin and Dwivedi,  Kshitij and Iamshchinina,  Polina and Graumann,  Monika and Lascelles,  Alex and Roig,  Gemma and Gifford,  Alessandro Thomas and Pan,  Bowen and Jin,  SouYoung and Ratan Murty,  N. Apurva and Kay,  Kendrick and Oliva,  Aude and Cichy,  Radoslaw},
         year = {2024},
-        month = jul 
+        month = jul
     }
     """
     licence: tp.ClassVar[str] = "CC0"

@@ -132,10 +132,15 @@ PRESETS: dict[str, ExtractorConfig] = {
     ),
     "vjepa2-vit-l": ExtractorConfig(
         name="vjepa2-vit-l",
-        hf_model_id="facebook/vjepa2-vitl-fpc16-256",
+        # The 16-frame variant Meta ships is only the SSv2-fine-tuned head
+        # (`vjepa2-vitl-fpc16-256-ssv2`), which biases representations toward
+        # action-recognition labels. For a representational-alignment study
+        # we want the pre-trained base model; Meta publishes it as the
+        # 64-frame ViT-L checkpoint.
+        hf_model_id="facebook/vjepa2-vitl-fpc64-256",
         input_type="video",
         expected_dim=1024,
-        n_frames=16,
+        n_frames=64,
         processor_class="AutoProcessor",
         model_class="AutoModel",
         pooling="mean",
