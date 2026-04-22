@@ -227,6 +227,42 @@ def test_save_and_load_cache(tmp_path: Path, texts):
     np.testing.assert_array_equal(feats, restored)
 
 
+class _FakeOutputWithTextEmbeds:
+    """Mimics transformers 5.x CLIPModel.get_text_features return type."""
+
+    def __init__(self, text_embeds):
+        self.text_embeds = text_embeds
+
+
+class _FakeModelReturningOutputObject(torch.nn.Module):
+    """CLIP-style model whose get_text_features returns an output object
+    (transformers 5.x behavior) rather than a plain tensor.
+    """
+
+    def __init__(self, dim=768, vocab_size=256):
+        super().__init__()
+        self.embed = torch.nn.Embedding(vocab_size, dim)
+        self.proj = torch.nn.Linear(dim, dim)
+
+    def get_text_features(self, input_ids, attention_mask=None):
+        emb = self.embed(input_ids).mean(1)
+        return _FakeOutputWithTextEmbeds(text_embeds=self.proj(emb))
+
+
+def test_projection_path_handles_transformers_v5_output_object(texts):
+    """Regression for transformers 5.x where get_text_features returns
+    a BaseModelOutputWithPooling-style object instead of a tensor.
+    Without the _as_tensor unwrap the extractor would crash on .detach.
+    """
+    ext = TextFeatureExtractor.from_preset(
+        "clip-text-vit-l-14", device="cpu",
+        model_factory=_factory(_FakeModelReturningOutputObject(dim=768)),
+    )
+    feats = ext.extract(texts)
+    assert feats.shape == (3, 768)
+    assert feats.dtype == np.float32
+
+
 def test_cache_key_is_deterministic_and_sensitive():
     ext = TextFeatureExtractor.from_preset(
         "clip-text-vit-l-14", device="cpu",

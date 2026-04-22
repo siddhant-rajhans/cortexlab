@@ -70,6 +70,34 @@ class TextExtractorConfig:
     pooling: str = "projection"
 
 
+def _as_tensor(x) -> torch.Tensor:
+    """Normalize whatever ``CLIPModel.get_text_features`` returns in the
+    running ``transformers`` version into a plain tensor.
+
+    transformers 4.x returned the projected embedding directly as a
+    tensor. transformers 5.x wrapped it in a ``BaseModelOutputWithPooling``
+    (and variants), losing the tensor API on the return value. This
+    helper handles both cases and a couple of common adjacent attribute
+    names so the feature extractor is robust across versions.
+    """
+    if isinstance(x, torch.Tensor):
+        return x
+    # Common attribute names on text-model output objects, in preference order.
+    for attr in ("text_embeds", "pooler_output", "logits"):
+        val = getattr(x, attr, None)
+        if isinstance(val, torch.Tensor):
+            return val
+    last = getattr(x, "last_hidden_state", None)
+    if isinstance(last, torch.Tensor):
+        # CLS pooling as a last resort; callers that care about projection
+        # have already tried every more specific path above.
+        return last[:, 0]
+    raise TypeError(
+        f"get_text_features returned {type(x).__name__!s}; "
+        "cannot extract a tensor from it."
+    )
+
+
 TEXT_PRESETS: dict[str, TextExtractorConfig] = {
     "clip-text-vit-l-14": TextExtractorConfig(
         name="clip-text-vit-l-14",
@@ -208,7 +236,8 @@ class TextFeatureExtractor:
             # CLIP / SigLIP expose a projected text embedding.
             getter = getattr(self._model, "get_text_features", None)
             if getter is not None:
-                return getter(**inputs)
+                result = getter(**inputs)
+                return _as_tensor(result)
             # Fall through to CLS.
             pooling = "cls"
         outputs = self._model(**inputs)
