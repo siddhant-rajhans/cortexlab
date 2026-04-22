@@ -80,6 +80,14 @@ def _parse_args() -> argparse.Namespace:
     ap.add_argument("--backend", type=str, default="auto")
     ap.add_argument("--mock", action="store_true",
                     help="Run on synthetic data for smoke-testing.")
+    ap.add_argument("--data-root", type=str, default=None,
+                    help="BOLD Moments dataset root. Overrides yaml/env.")
+    ap.add_argument("--feature-cache", type=str, default=None,
+                    help="Directory containing <modality>.npz files "
+                         "produced by experiments.build_feature_cache.")
+    ap.add_argument("--modalities", type=str, default="vision,text",
+                    help="Comma-separated modality names whose .npz files "
+                         "live in --feature-cache.")
     return ap.parse_args()
 
 
@@ -99,20 +107,24 @@ def _load_subject_data(
 ) -> dict:
     """Load features and responses for one subject.
 
-    The heavy lifting (BOLD Moments loader + TRIBE v2 feature extraction)
-    lives in ``cortexlab.data.studies.lahner2024bold``; this wrapper
-    exists so we can return a uniform dict regardless of whether data
-    came from disk or from the mock generator.
+    The heavy lifting (BOLD Moments loader) lives in
+    :mod:`cortexlab.data.studies.lahner2024bold`; this wrapper exists so
+    the orchestrator can return a uniform dict regardless of whether the
+    data came from disk or from the mock generator.
+
+    ``cfg`` is the merged configuration (YAML plus CLI overrides), so the
+    helper does not need to know which source set each field.
     """
     from cortexlab.data.studies.lahner2024bold import load_subject  # lazy
 
+    modalities = cfg.get("modalities") or ["vision", "text"]
     rec = load_subject(
         subject_id=subject_id,
         root=cfg.get("data_root"),
         feature_cache=cfg.get("feature_cache"),
+        modalities=tuple(modalities),
+        n_trimmed_stimuli=pilot,
     )
-    if pilot is not None:
-        rec = _subset(rec, pilot)
     return rec
 
 
@@ -282,6 +294,17 @@ def main() -> None:
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     args = _parse_args()
     cfg = _load_config(args.config)
+
+    # CLI overrides YAML. Only apply when the user actually passed
+    # something different from the defaults (`None` or the sentinel
+    # "vision,text" for modalities).
+    if args.data_root is not None:
+        cfg["data_root"] = args.data_root
+    if args.feature_cache is not None:
+        cfg["feature_cache"] = args.feature_cache
+    if args.modalities:
+        cfg["modalities"] = [m.strip() for m in args.modalities.split(",") if m.strip()]
+
     alphas = [float(a) for a in args.alphas.split(",")]
 
     run_study(
