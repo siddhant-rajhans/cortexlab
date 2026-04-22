@@ -109,6 +109,27 @@ def test_lesion_rejects_single_modality():
                             np.zeros((5, 3), dtype=np.float32))
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+def test_lesion_handles_cuda_device_end_to_end():
+    """Regression test: y_test arrives on CPU, encoder moves inputs to
+    CUDA, predict returns CUDA; _r2_score must not fail on device mismatch.
+    The smoke-test run on an L40S surfaced this before the fix.
+    """
+    train, test, y_tr, y_te, assignments = _synth_multimodal(seed=5)
+    result = run_modality_lesion(
+        train, test, y_tr, y_te,
+        alphas=[1.0], cv=2, mask_strategy="zero",
+        device="cuda", backend="torch",
+    )
+    assert result.full_r2.device.type == "cuda"
+    for m in result.modality_order:
+        assert result.delta_r2[m].device.type == "cuda"
+    # Sanity: the ground-truth recovery still holds on GPU.
+    for m, sl in assignments.items():
+        own = result.delta_r2[m][sl.start : sl.stop].mean().item()
+        assert own > 0.2, f"{m}: expected large dR^2, got {own:.3f}"
+
+
 def test_lesion_rejects_mismatched_keys():
     train = {"text": np.random.randn(10, 4).astype(np.float32),
              "audio": np.random.randn(10, 4).astype(np.float32)}
