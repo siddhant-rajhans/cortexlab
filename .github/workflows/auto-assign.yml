@@ -10,20 +10,46 @@ permissions:
 jobs:
   assign:
     runs-on: ubuntu-latest
+    # Only trigger when:
+    # - Comment is on an issue (not a PR)
+    # - Commenter is NOT the repo owner / a member / a collaborator (i.e. only external contributors)
+    # - Comment contains an explicit opt-in phrase at the start (loose enough to be friendly, strict
+    #   enough not to trigger on maintainers discussing assignment)
     if: |
       !github.event.issue.pull_request &&
-      contains(github.event.comment.body, 'assign') &&
-      (contains(github.event.comment.body, 'me') || contains(github.event.comment.body, 'myself'))
+      github.event.comment.author_association != 'OWNER' &&
+      github.event.comment.author_association != 'MEMBER' &&
+      github.event.comment.author_association != 'COLLABORATOR'
     steps:
-      - name: Check if issue is already assigned
-        id: check
+      - name: Check opt-in phrase and assign
         uses: actions/github-script@v7
         with:
           script: |
             const issue = context.payload.issue;
-            const commenter = context.payload.comment.user.login;
+            const comment = context.payload.comment;
+            const commenter = comment.user.login;
+            const body = (comment.body || '').toLowerCase();
 
-            // Check if already assigned to someone
+            // Require an explicit opt-in phrase. Matches common requests:
+            //   "assign me", "assign to me", "assign this to me",
+            //   "/assign", "/assign me", "@me assign", "i'd like to work on this",
+            //   "i would like to work on this", "can i work on this"
+            const optInPatterns = [
+              /\bassign\s+(this\s+)?(to\s+)?me\b/,
+              /\bassign\s+me\b/,
+              /^\s*\/assign(\s|$)/m,
+              /\bi'?d\s+like\s+to\s+work\s+on\s+this\b/,
+              /\bi\s+would\s+like\s+to\s+work\s+on\s+this\b/,
+              /\bcan\s+i\s+work\s+on\s+this\b/,
+              /\bi\s+want\s+to\s+work\s+on\s+this\b/,
+            ];
+            const optedIn = optInPatterns.some(p => p.test(body));
+            if (!optedIn) {
+              core.info('No opt-in phrase detected. Skipping.');
+              return;
+            }
+
+            // Already assigned? Nudge the commenter to another issue.
             if (issue.assignees.length > 0) {
               const assignees = issue.assignees.map(a => a.login).join(', ');
               await github.rest.issues.createComment({
@@ -35,7 +61,7 @@ jobs:
               return;
             }
 
-            // Assign the commenter
+            // Assign the commenter.
             await github.rest.issues.addAssignees({
               owner: context.repo.owner,
               repo: context.repo.repo,
