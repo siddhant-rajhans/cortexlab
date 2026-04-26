@@ -186,6 +186,16 @@ class BrainAlignmentBenchmark:
         Returns
         -------
         AlignmentResult
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from cortexlab.analysis import BrainAlignmentBenchmark
+        >>> brain_pred = np.random.randn(50, 200)
+        >>> model_feat = np.random.randn(50, 512)
+        >>> bench = BrainAlignmentBenchmark(brain_pred)
+        >>> result = bench.score_model(model_feat, method="rsa")
+        >>> result is not None
+        True
         """
         if method not in _METHODS:
             raise ValueError(f"Unknown method {method!r}. Choose from {list(_METHODS)}")
