@@ -123,6 +123,13 @@ def _parse_args() -> argparse.Namespace:
                          "as p_<m>_median and frac_sig_<m>. 0 skips.")
     ap.add_argument("--permutation-seed", type=int, default=0,
                     help="RNG seed for reproducible permutations.")
+    ap.add_argument("--fdr", action="store_true",
+                    help="Apply Benjamini-Hochberg FDR correction across "
+                         "voxels per modality; adds q_<m>_median and "
+                         "frac_q_sig_<m> per ROI to the summary. Requires "
+                         "--permutations > 0.")
+    ap.add_argument("--fdr-alpha", type=float, default=0.05,
+                    help="Reject threshold for frac_q_sig_<m>. Default 0.05.")
     return ap.parse_args()
 
 
@@ -248,6 +255,8 @@ def run_one_subject(
     ceiling: np.ndarray | None = None,
     n_permutations: int = 0,
     permutation_seed: int = 0,
+    apply_fdr: bool = False,
+    fdr_alpha: float = 0.05,
 ) -> dict:
     """Fit encoder, run lesion, summarize over ROIs.
 
@@ -255,6 +264,8 @@ def run_one_subject(
     with ``rec["y_test"]``'s voxel axis; it flows into
     :func:`roi_summary` so each ROI row gains a ``full_r2_normalized``
     column and the top-level summary gains a ``full_r2_normalized_mean``.
+    When ``apply_fdr`` is True and permutations were run, q-values land
+    in the ROI summary as ``q_<m>_median`` and ``frac_q_sig_<m>``.
     """
     t0 = time.perf_counter()
     result = run_modality_lesion(
@@ -268,7 +279,10 @@ def run_one_subject(
     elapsed = time.perf_counter() - t0
     logger.info("subject %s: lesion done in %.1fs", rec["subject_id"], elapsed)
 
-    summary = roi_summary(result, rec["roi_indices"], ceiling=ceiling)
+    summary = roi_summary(
+        result, rec["roi_indices"], ceiling=ceiling,
+        apply_fdr=apply_fdr, fdr_alpha=fdr_alpha,
+    )
     payload = {
         "subject_id": rec["subject_id"],
         "elapsed_sec": elapsed,
@@ -361,6 +375,8 @@ def run_study(
             ceiling=ondisk_ceilings.get(sid),
             n_permutations=int(cfg.get("permutations") or 0),
             permutation_seed=int(cfg.get("permutation_seed") or 0),
+            apply_fdr=bool(cfg.get("fdr") or False),
+            fdr_alpha=float(cfg.get("fdr_alpha") or 0.05),
         )
         per_subject.append(summary)
         lesion_objs[sid] = lesion
@@ -389,6 +405,8 @@ def run_study(
                 # downstream plots don't mix the on-disk and computed variants.
                 s_summary["roi_summary"] = roi_summary(
                     lesion_objs[sid], roi_by_subject[sid], ceiling=ceil,
+                    apply_fdr=bool(cfg.get("fdr") or False),
+                    fdr_alpha=float(cfg.get("fdr_alpha") or 0.05),
                 )
                 # Re-attach per-ROI permutation fields (roi_summary
                 # re-reads result.p_values on every call, so this is a
@@ -475,6 +493,10 @@ def main() -> None:
         cfg["permutations"] = args.permutations
     if args.permutation_seed is not None:
         cfg["permutation_seed"] = args.permutation_seed
+    if args.fdr:
+        cfg["fdr"] = True
+    if args.fdr_alpha is not None:
+        cfg["fdr_alpha"] = args.fdr_alpha
 
     alphas = [float(a) for a in args.alphas.split(",")]
 

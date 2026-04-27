@@ -288,6 +288,8 @@ def roi_summary(
     roi_indices: Mapping[str, np.ndarray],
     ceiling: np.ndarray | None = None,
     min_ceiling: float = 0.01,
+    apply_fdr: bool = False,
+    fdr_alpha: float = 0.05,
 ) -> dict[str, dict[str, float]]:
     """Aggregate a LesionResult over ROIs.
 
@@ -309,6 +311,16 @@ def roi_summary(
         Voxels with ceiling below this threshold are dropped from the
         normalized mean to avoid division instability.
 
+    apply_fdr
+        When True and ``result.p_values`` is populated, also compute
+        Benjamini-Hochberg q-values across the full set of voxels per
+        modality, and report ``q_<m>_median`` and ``frac_q_sig_<m>``
+        (at ``fdr_alpha``) per ROI. The BH denominator is the total
+        finite voxel count, not per-ROI count, so q-values are directly
+        comparable across regions.
+    fdr_alpha
+        Reject threshold used for ``frac_q_sig_<m>``. Defaults to 0.05.
+
     Returns
     -------
     dict
@@ -317,14 +329,20 @@ def roi_summary(
         ``ceiling_mean`` per ROI when ``ceiling`` is provided. Adds
         ``p_<m>_median`` and ``frac_sig_<m>`` (at alpha=0.05) per ROI
         when ``result.p_values`` is populated by
-        :func:`run_modality_lesion` with ``n_permutations > 0``.
+        :func:`run_modality_lesion` with ``n_permutations > 0``. Adds
+        ``q_<m>_median`` and ``frac_q_sig_<m>`` per ROI when
+        ``apply_fdr=True``.
     """
     out: dict[str, dict[str, float]] = {}
     full = result.full_r2.cpu().numpy()
     dr2 = {m: result.delta_r2[m].cpu().numpy() for m in result.modality_order}
     p_vals: dict[str, np.ndarray] | None = None
+    q_vals: dict[str, np.ndarray] | None = None
     if result.p_values is not None:
         p_vals = {m: result.p_values[m].cpu().numpy() for m in result.modality_order}
+        if apply_fdr:
+            from cortexlab.analysis.stats import bh_fdr
+            q_vals = {m: bh_fdr(p_vals[m]) for m in result.modality_order}
 
     if ceiling is not None:
         ceiling = np.asarray(ceiling)
@@ -340,6 +358,9 @@ def roi_summary(
             if p_vals is not None:
                 row[f"p_{m}_median"] = float(np.median(p_vals[m][idx]))
                 row[f"frac_sig_{m}"] = float(np.mean(p_vals[m][idx] < 0.05))
+            if q_vals is not None:
+                row[f"q_{m}_median"] = float(np.median(q_vals[m][idx]))
+                row[f"frac_q_sig_{m}"] = float(np.mean(q_vals[m][idx] < fdr_alpha))
         if ceiling is not None:
             c_roi = ceiling[idx]
             mask = c_roi > min_ceiling
