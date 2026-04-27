@@ -173,7 +173,7 @@ def main() -> None:
             f"statmap {args.statmap} has no finite values; nothing to animate."
         )
 
-    from cortexlab.viz.surface_renderer import make_renderer, RenderConfig
+    from cortexlab.viz.surface_renderer import RenderConfig, make_renderer
     renderer = make_renderer(engine=args.engine, mesh=args.mesh)
     config = RenderConfig(
         mesh=args.mesh, cmap=args.cmap,

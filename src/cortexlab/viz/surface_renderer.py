@@ -331,8 +331,8 @@ def make_renderer(
         return MatplotlibRenderer(mesh=mesh)
     if engine == "plotly":
         try:
-            import plotly  # noqa: F401
             import kaleido  # noqa: F401
+            import plotly  # noqa: F401
         except ImportError as e:
             raise ImportError(
                 "engine='plotly' requires the [viz] extras. "
@@ -342,8 +342,8 @@ def make_renderer(
         return PlotlyRenderer(mesh=mesh)
     if engine == "auto":
         try:
-            import plotly  # noqa: F401
             import kaleido  # noqa: F401
+            import plotly  # noqa: F401
             logger.info("auto-selected plotly renderer (GPU/WebGL)")
             return PlotlyRenderer(mesh=mesh)
         except ImportError:
