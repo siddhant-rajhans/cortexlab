@@ -59,6 +59,16 @@ streaming = [
 analysis = [
   "scipy",
 ]
+viz = [
+  # GPU-accelerated cortical surface rendering via plotly's WebGL engine.
+  # Lets `cortexlab.viz.surface_renderer.PlotlyRenderer` produce static
+  # PNGs and animated GIFs/MP4s in seconds rather than minutes.
+  "plotly>=5.0",
+  "kaleido>=0.2",         # static PNG export from plotly figures
+  "Pillow>=9.0",          # GIF assembly
+  "imageio>=2.31",        # MP4 assembly via the imageio-ffmpeg backend
+  "imageio-ffmpeg>=0.4",
+]
 dev = [
   "pytest",
   "pytest-cov",
