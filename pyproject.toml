@@ -64,7 +64,12 @@ viz = [
   # Lets `cortexlab.viz.surface_renderer.PlotlyRenderer` produce static
   # PNGs and animated GIFs/MP4s in seconds rather than minutes.
   "plotly>=5.0",
-  "kaleido>=0.2",         # static PNG export from plotly figures
+  # kaleido pinned to <1.0 because v1.x spawns a fresh Chrome process per
+  # render call (no batching), making animations 30x slower than the
+  # 0.2.x series which keeps a persistent Chromium process alive across
+  # calls. v1.x also requires a separate `plotly_get_chrome` step.
+  # Revisit once kaleido v1.x grows a documented batch API.
+  "kaleido>=0.2,<1.0",
   "Pillow>=9.0",          # GIF assembly
   "imageio>=2.31",        # MP4 assembly via the imageio-ffmpeg backend
   "imageio-ffmpeg>=0.4",
