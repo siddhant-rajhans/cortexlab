@@ -284,6 +284,49 @@ def test_roi_summary_without_permutations_omits_p_columns():
         assert f"frac_sig_{m}" not in row
 
 
+def test_roi_summary_apply_fdr_adds_q_columns():
+    """When apply_fdr=True, roi_summary should emit q_<m>_median and
+    frac_q_sig_<m> per ROI; without permutations, these should still be
+    absent because q-values can't be computed without p-values."""
+    train, test, y_tr, y_te, _ = _synth_multimodal(noise=0.05)
+    result = run_modality_lesion(
+        train, test, y_tr, y_te,
+        alphas=[1e-2, 1.0, 1e2], cv=3, mask_strategy="zero",
+        n_permutations=200, permutation_seed=0,
+    )
+    rois = {
+        "text_roi":  np.array([0, 1, 2, 3]),
+        "audio_roi": np.array([4, 5, 6, 7]),
+        "video_roi": np.array([8, 9, 10, 11]),
+    }
+    summary = roi_summary(result, rois, apply_fdr=True)
+    for roi_name in rois:
+        row = summary[roi_name]
+        for m in result.modality_order:
+            assert f"q_{m}_median" in row
+            assert f"frac_q_sig_{m}" in row
+            assert 0.0 <= row[f"q_{m}_median"] <= 1.0
+            assert 0.0 <= row[f"frac_q_sig_{m}"] <= 1.0
+        # Voxel-wise q is at least as conservative as p, so frac_q_sig <= frac_sig.
+        for m in result.modality_order:
+            assert row[f"frac_q_sig_{m}"] <= row[f"frac_sig_{m}"] + 1e-9
+
+
+def test_roi_summary_apply_fdr_without_permutations_is_silent_noop():
+    """If permutations=0 there are no p-values to correct; the FDR flag
+    should silently leave the schema as-is rather than crashing."""
+    train, test, y_tr, y_te, _ = _synth_multimodal()
+    result = run_modality_lesion(train, test, y_tr, y_te,
+                                 alphas=[1.0], cv=2, mask_strategy="zero")
+    summary = roi_summary(
+        result, {"text_roi": np.array([0, 1, 2, 3])}, apply_fdr=True,
+    )
+    row = summary["text_roi"]
+    for m in result.modality_order:
+        assert f"q_{m}_median" not in row
+        assert f"frac_q_sig_{m}" not in row
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 def test_lesion_handles_cuda_device_end_to_end():
     """Regression test: y_test arrives on CPU, encoder moves inputs to
