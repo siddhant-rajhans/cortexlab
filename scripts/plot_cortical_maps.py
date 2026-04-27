@@ -115,8 +115,8 @@ def _plot_panel(stat_map: np.ndarray, title: str, out_path: Path,
                 cmap: str, threshold: float | None,
                 mesh: str, dpi: int) -> None:
     """Four-panel cortical figure: lh-lat, lh-med, rh-med, rh-lat."""
-    from nilearn.datasets import fetch_surf_fsaverage   # lazy
-    from nilearn.plotting import plot_surf_stat_map     # lazy
+    from nilearn.datasets import fetch_surf_fsaverage  # lazy
+    from nilearn.plotting import plot_surf_stat_map  # lazy
 
     fs = fetch_surf_fsaverage(mesh=mesh)
     n_vert_per_hemi = stat_map.shape[0] // 2
