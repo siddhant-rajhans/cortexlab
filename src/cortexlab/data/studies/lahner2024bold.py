@@ -475,11 +475,13 @@ def load_subject(
 
 
 NOISE_CEILING_FILENAME_TEMPLATE: tp.Final[str] = (
-    "sub-{subject_id:02d}_organized_noiseceiling_task-{split}_hemi-{hemi}_n-{n}.pkl"
+    "sub-{subject_id:02d}_noiseceiling_space-{space}_task-{split}_hemi-{hemi}_n-{n}.pkl"
 )
 """Filename convention used by the BOLD Moments authors for pre-computed
 noise ceilings, as shipped under ``prepared_betas/`` alongside the betas.
-Both the ``n-10`` (all subjects) and ``n-k`` (subset) variants follow this
+The ``space`` slot is populated with whichever space the ceiling was
+computed in (``fsaverage``, ``MNI152NLin2009cAsym``, ...). Both the
+``n-10`` (all subjects) and ``n-k`` (subset) variants follow this
 template."""
 
 
@@ -488,6 +490,7 @@ def load_noise_ceiling(
     root: str | os.PathLike | None = None,
     split: str = "test",
     n: int = 10,
+    space: str = "fsaverage",
 ) -> np.ndarray:
     """Load the BOLD Moments on-disk noise ceiling for one subject.
 
@@ -514,7 +517,14 @@ def load_noise_ceiling(
         repetitions make the ceiling estimator robust.
     n
         The ``n`` suffix in the filename (subjects used to build the
-        ceiling). BOLD Moments ships ``n=10``.
+        ceiling). BOLD Moments ships ``n=10`` and ``n=1``; the ``test``
+        split also ships ``n=3`` for the training data.
+    space
+        Coordinate space the ceiling lives in. ``"fsaverage"`` for the
+        cortical-surface release used by :func:`load_subject`;
+        ``"MNI152NLin2009cAsym"`` (or similar) for volumetric variants
+        if the user has those staged. The same template is used; only
+        the ``space-`` slot in the filename changes.
 
     Returns
     -------
@@ -550,13 +560,14 @@ def load_noise_ceiling(
     hemi_arrays: list[np.ndarray] = []
     for hemi in ("left", "right"):
         fname = NOISE_CEILING_FILENAME_TEMPLATE.format(
-            subject_id=subject_id, split=split, hemi=hemi, n=n,
+            subject_id=subject_id, split=split, hemi=hemi, n=n, space=space,
         )
         fp = betas_root / fname
         if not fp.exists():
             raise FileNotFoundError(
                 f"missing noise-ceiling file {fp}. "
-                f"Expected the Lahner 2024 convention {NOISE_CEILING_FILENAME_TEMPLATE!r}."
+                f"Expected the Lahner 2024 convention {NOISE_CEILING_FILENAME_TEMPLATE!r} "
+                f"(space={space!r})."
             )
         with fp.open("rb") as f:
             obj = pkl.load(f)

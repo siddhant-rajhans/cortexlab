@@ -114,6 +114,9 @@ def _parse_args() -> argparse.Namespace:
     ap.add_argument("--noise-ceiling-split", type=str, default="test",
                     choices=["train", "test"],
                     help="Which split's on-disk ceiling to load from BOLD Moments.")
+    ap.add_argument("--noise-ceiling-space", type=str, default="fsaverage",
+                    help="Coordinate space for the BOLD Moments on-disk "
+                         "ceiling filename ('fsaverage', 'MNI152NLin2009cAsym', etc).")
     ap.add_argument("--permutations", type=int, default=0,
                     help="If >0, run a row-permutation test per modality with "
                          "this many shuffles; p-values land in roi_summary "
@@ -338,10 +341,11 @@ def run_study(
         from cortexlab.data.studies.lahner2024bold import load_noise_ceiling  # lazy
         nc_split = cfg.get("noise_ceiling_split") or "test"
         nc_n = int(cfg.get("noise_ceiling_n") or 10)
+        nc_space = cfg.get("noise_ceiling_space") or "fsaverage"
         for sid in subject_ids:
             ondisk_ceilings[sid] = load_noise_ceiling(
                 subject_id=sid, root=cfg.get("data_root"),
-                split=nc_split, n=nc_n,
+                split=nc_split, n=nc_n, space=nc_space,
             )
 
     for sid in subject_ids:
@@ -461,6 +465,8 @@ def main() -> None:
         cfg["noise_ceiling_n"] = args.noise_ceiling_n
     if args.noise_ceiling_split:
         cfg["noise_ceiling_split"] = args.noise_ceiling_split
+    if args.noise_ceiling_space:
+        cfg["noise_ceiling_space"] = args.noise_ceiling_space
     if args.parcellation_rois:
         cfg["parcellation_rois"] = [
             r.strip() for r in args.parcellation_rois.split(",") if r.strip()
