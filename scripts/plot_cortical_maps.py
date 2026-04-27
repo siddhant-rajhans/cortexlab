@@ -53,11 +53,15 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--modalities", type=str, default=None,
                     help="Comma-separated modalities to plot. Defaults to "
                          "manifest.results[0].modality_order.")
-    ap.add_argument("--mesh", type=str, default="fsaverage",
+    ap.add_argument("--mesh", type=str, default="fsaverage5",
                     choices=["fsaverage", "fsaverage5", "fsaverage6"],
-                    help="fsaverage variant for plotting. fsaverage = the "
-                         "163,842-vertex high-res mesh used by BOLD Moments. "
-                         "Lower-res variants are faster but blockier.")
+                    help="fsaverage variant for plotting. 'fsaverage' = the "
+                         "163,842-vertex high-res mesh (slow on a login "
+                         "node, allow ~10 min per figure). 'fsaverage5' "
+                         "(default, 10,242 verts/hemi) renders in seconds "
+                         "and is sufficient for slide-resolution maps. "
+                         "Data on fsaverage7 is auto-truncated to lower-res "
+                         "meshes via the standard fsaverage-subset trick.")
     ap.add_argument("--cmap", type=str, default="cold_hot",
                     help="matplotlib/nilearn colormap.")
     ap.add_argument("--threshold", type=float, default=None,
@@ -114,14 +118,42 @@ def _load_subject_arrays(results_dir: Path, subject_ids: list[int],
 def _plot_panel(stat_map: np.ndarray, title: str, out_path: Path,
                 cmap: str, threshold: float | None,
                 mesh: str, dpi: int) -> None:
-    """Four-panel cortical figure: lh-lat, lh-med, rh-med, rh-lat."""
+    """Four-panel cortical figure: lh-lat, lh-med, rh-med, rh-lat.
+
+    fsaverage7 (163,842 verts/hemi) is too slow to render with
+    matplotlib's 3D backend on a login node (each save takes minutes).
+    Lower-resolution fsaverage variants (5/6) are topologically a
+    subset of fsaverage7 — vertex K of fsaverage5 has the same
+    coordinate as vertex K of fsaverage7. So when the caller asks for
+    a lower-res mesh we just truncate the data to the first N verts
+    per hemisphere; no interpolation needed.
+    """
     from nilearn.datasets import fetch_surf_fsaverage  # lazy
     from nilearn.plotting import plot_surf_stat_map  # lazy
 
     fs = fetch_surf_fsaverage(mesh=mesh)
-    n_vert_per_hemi = stat_map.shape[0] // 2
-    lh_data = stat_map[:n_vert_per_hemi]
-    rh_data = stat_map[n_vert_per_hemi:]
+    # nilearn returns surfaces as filenames (str) or InMemoryMesh; load
+    # one to get the canonical vertex count for the requested mesh.
+    import nibabel.freesurfer.io as fsio
+    mesh_lh_verts, _ = fsio.read_geometry(fs.infl_left)
+    n_mesh_verts_per_hemi = mesh_lh_verts.shape[0]
+    n_data_per_hemi = stat_map.shape[0] // 2
+    if n_data_per_hemi != n_mesh_verts_per_hemi:
+        if n_mesh_verts_per_hemi > n_data_per_hemi:
+            raise ValueError(
+                f"data has {n_data_per_hemi} verts/hemi but {mesh!r} expects "
+                f"{n_mesh_verts_per_hemi}; pick a lower-res mesh, not higher."
+            )
+        # Truncate: first N verts of fsaverage7 == fsaverage5/6 verts.
+        logger.info(
+            "downsampling %d -> %d verts/hemi via fsaverage subset truncation",
+            n_data_per_hemi, n_mesh_verts_per_hemi,
+        )
+        lh_data = stat_map[:n_mesh_verts_per_hemi]
+        rh_data = stat_map[n_data_per_hemi : n_data_per_hemi + n_mesh_verts_per_hemi]
+    else:
+        lh_data = stat_map[:n_data_per_hemi]
+        rh_data = stat_map[n_data_per_hemi:]
 
     fig, axarr = plt.subplots(
         1, 4, figsize=(16, 4),
