@@ -337,21 +337,42 @@ def make_renderer(
             raise ImportError(
                 "engine='plotly' requires the [viz] extras. "
                 "Install them with `pip install cortexlab[viz]` or "
-                "`pip install plotly kaleido`."
+                "`pip install plotly kaleido`. "
+                "Kaleido v1+ also needs an external Chrome binary; "
+                "fetch it with `plotly_get_chrome` after install."
             ) from e
         return PlotlyRenderer(mesh=mesh)
     if engine == "auto":
         try:
             import kaleido  # noqa: F401
             import plotly  # noqa: F401
-            logger.info("auto-selected plotly renderer (GPU/WebGL)")
-            return PlotlyRenderer(mesh=mesh)
         except ImportError:
             logger.info(
                 "plotly + kaleido not installed; falling back to matplotlib renderer. "
                 "Install with `pip install cortexlab[viz]` for GPU acceleration."
             )
             return MatplotlibRenderer(mesh=mesh)
+        # kaleido v1+ depends on an external Chrome install. Imports succeed
+        # but the first render raises ``ChromeNotFoundError`` if Chrome is
+        # missing. Probe with a 1x1 dummy figure so the fallback decision
+        # happens up-front rather than mid-animation.
+        try:
+            import plotly.graph_objects as go
+            import plotly.io as pio
+            pio.to_image(
+                go.Figure(data=[go.Bar(x=[0], y=[0])]),
+                format="png", width=10, height=10,
+            )
+        except Exception as e:  # noqa: BLE001 — any failure -> fallback
+            logger.info(
+                "plotly/kaleido installed but render probe failed (%s); "
+                "falling back to matplotlib renderer. Run `plotly_get_chrome` "
+                "to fetch the headless Chrome binary kaleido v1+ requires.",
+                type(e).__name__,
+            )
+            return MatplotlibRenderer(mesh=mesh)
+        logger.info("auto-selected plotly renderer (GPU/WebGL)")
+        return PlotlyRenderer(mesh=mesh)
     raise ValueError(f"unknown engine {engine!r}; pick auto|matplotlib|plotly")
 
 
