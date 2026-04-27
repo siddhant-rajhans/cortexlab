@@ -132,11 +132,20 @@ def _plot_panel(stat_map: np.ndarray, title: str, out_path: Path,
     from nilearn.plotting import plot_surf_stat_map  # lazy
 
     fs = fetch_surf_fsaverage(mesh=mesh)
-    # nilearn returns surfaces as filenames (str) or InMemoryMesh; load
-    # one to get the canonical vertex count for the requested mesh.
-    import nibabel.freesurfer.io as fsio
-    mesh_lh_verts, _ = fsio.read_geometry(fs.infl_left)
-    n_mesh_verts_per_hemi = mesh_lh_verts.shape[0]
+    # Canonical fsaverage vertex counts. Hardcoded rather than read from
+    # the mesh file because nilearn 0.13+ ships GIFTI files which
+    # nibabel.freesurfer.io.read_geometry cannot parse.
+    MESH_VERTS_PER_HEMI = {
+        "fsaverage": 163842,
+        "fsaverage7": 163842,
+        "fsaverage6": 40962,
+        "fsaverage5": 10242,
+        "fsaverage4": 2562,
+        "fsaverage3": 642,
+    }
+    n_mesh_verts_per_hemi = MESH_VERTS_PER_HEMI.get(mesh)
+    if n_mesh_verts_per_hemi is None:
+        raise ValueError(f"unsupported mesh {mesh!r}; pick one of {list(MESH_VERTS_PER_HEMI)}")
     n_data_per_hemi = stat_map.shape[0] // 2
     if n_data_per_hemi != n_mesh_verts_per_hemi:
         if n_mesh_verts_per_hemi > n_data_per_hemi:
