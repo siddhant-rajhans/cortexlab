@@ -13,7 +13,6 @@ import pytest
 
 from cortexlab.analysis.stats import bh_fdr, fraction_significant
 
-
 # --------------------------------------------------------------------------- #
 # bh_fdr — closed-form correctness                                            #
 # --------------------------------------------------------------------------- #
