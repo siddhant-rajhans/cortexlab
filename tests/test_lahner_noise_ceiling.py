@@ -50,7 +50,7 @@ def _write_ceiling(
     sub_dir.mkdir(parents=True, exist_ok=True)
     for hemi, arr in (("left", lh), ("right", rh)):
         fp = sub_dir / NOISE_CEILING_FILENAME_TEMPLATE.format(
-            subject_id=subject_id, split=split, hemi=hemi, n=n,
+            subject_id=subject_id, split=split, hemi=hemi, n=n, space="fsaverage",
         )
         if payload_wrap == "array":
             payload = arr
@@ -117,6 +117,30 @@ def test_load_noise_ceiling_nondefault_n(tmp_path, tiny_vertices):
     assert ceiling.shape == (2 * tiny_vertices,)
 
 
+def test_load_noise_ceiling_nonfsaverage_space(tmp_path, tiny_vertices):
+    """The same template should work for volumetric variants by passing
+    ``space=`` (e.g. ``MNI152NLin2009cAsym`` for the volumetric BOLD
+    Moments release)."""
+    lh = np.full(tiny_vertices, 0.2, dtype=np.float32)
+    rh = np.full(tiny_vertices, 0.3, dtype=np.float32)
+    sub_dir = tmp_path / BETAS_SUBPATH / "sub-01" / "prepared_betas"
+    sub_dir.mkdir(parents=True, exist_ok=True)
+    for hemi, arr in (("left", lh), ("right", rh)):
+        fp = sub_dir / NOISE_CEILING_FILENAME_TEMPLATE.format(
+            subject_id=1, split="test", hemi=hemi, n=10,
+            space="MNI152NLin2009cAsym",
+        )
+        with fp.open("wb") as f:
+            pkl.dump(arr, f)
+    ceiling = load_noise_ceiling(
+        subject_id=1, root=tmp_path, n=10, space="MNI152NLin2009cAsym",
+    )
+    assert ceiling.shape == (2 * tiny_vertices,)
+    # Default space="fsaverage" should now fail because we wrote the MNI variant.
+    with pytest.raises(FileNotFoundError, match="noise-ceiling"):
+        load_noise_ceiling(subject_id=1, root=tmp_path, n=10)
+
+
 # --------------------------------------------------------------------------- #
 # error paths                                                                 #
 # --------------------------------------------------------------------------- #
@@ -139,7 +163,7 @@ def test_load_noise_ceiling_missing_hemisphere_file(tmp_path, tiny_vertices):
     fp_rh = (
         tmp_path / BETAS_SUBPATH / "sub-01" / "prepared_betas"
         / NOISE_CEILING_FILENAME_TEMPLATE.format(
-            subject_id=1, split="test", hemi="right", n=10,
+            subject_id=1, split="test", hemi="right", n=10, space="fsaverage",
         )
     )
     fp_rh.unlink()
@@ -160,7 +184,7 @@ def test_load_noise_ceiling_unknown_payload_type(tmp_path, tiny_vertices):
     sub_dir.mkdir(parents=True, exist_ok=True)
     for hemi in ("left", "right"):
         fp = sub_dir / NOISE_CEILING_FILENAME_TEMPLATE.format(
-            subject_id=1, split="test", hemi=hemi, n=10,
+            subject_id=1, split="test", hemi=hemi, n=10, space="fsaverage",
         )
         with fp.open("wb") as f:
             pkl.dump({"oops": "dict"}, f)     # neither array nor tuple
