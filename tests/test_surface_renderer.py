@@ -103,6 +103,9 @@ def test_make_renderer_explicit_plotly_raises_without_extras(monkeypatch):
 
 
 def test_make_renderer_auto_falls_back_when_plotly_missing(monkeypatch):
+    """Auto path should pick pyvista if available, else plotly, else matplotlib.
+    With pyvista AND plotly both unavailable, falls back to matplotlib."""
+    monkeypatch.setitem(sys.modules, "pyvista", None)
     monkeypatch.setitem(sys.modules, "plotly", None)
     monkeypatch.setitem(sys.modules, "kaleido", None)
     r = make_renderer(engine="auto")
@@ -199,3 +202,58 @@ def test_plotly_renderer_html_output(plotly_renderer, synth_stat_map):
     assert "<html" in html.lower()
     # Plotly figures embed Plotly.js or a CDN reference.
     assert "plotly" in html.lower()
+
+
+# --------------------------------------------------------------------------- #
+# PyVista renderer (only if pyvista installed)                                #
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture
+def pyvista_renderer():
+    pytest.importorskip("pyvista")
+    return make_renderer(engine="pyvista", mesh="fsaverage5")
+
+
+def test_pyvista_renderer_factory(pyvista_renderer):
+    assert pyvista_renderer.name == "pyvista"
+
+
+def test_pyvista_renderer_produces_png_left(pyvista_renderer, synth_stat_map):
+    config = RenderConfig(mesh="fsaverage5", cmap="hot", width=600, height=600)
+    png = pyvista_renderer.render_frame(
+        synth_stat_map, view="lateral_left",
+        hemi="left", config=config,
+    )
+    assert png[:8] == PNG_MAGIC
+    assert len(png) > 1000
+
+
+def test_pyvista_renderer_produces_png_both(pyvista_renderer, synth_stat_map):
+    config = RenderConfig(mesh="fsaverage5", cmap="hot", width=600, height=600)
+    png = pyvista_renderer.render_frame(
+        synth_stat_map, view=(0.0, 180.0),
+        hemi="both", config=config,
+    )
+    assert png[:8] == PNG_MAGIC
+
+
+def test_pyvista_renderer_handles_nan_with_alpha_zero(pyvista_renderer):
+    """NaN voxels must not render as colormap[0]; they should let the
+    sulcal background show through. Smoke-test that an all-NaN-except-
+    one-vertex map renders without crashing and produces a non-degenerate
+    PNG."""
+    n = MESH_VERTS_PER_HEMI["fsaverage5"]
+    data = np.full(2 * n, np.nan, dtype=np.float32)
+    data[1000] = 0.5
+    config = RenderConfig(mesh="fsaverage5", cmap="hot", width=400, height=400)
+    png = pyvista_renderer.render_frame(
+        data, view="lateral_left", hemi="left", config=config,
+    )
+    assert png[:8] == PNG_MAGIC
+
+
+def test_make_renderer_auto_prefers_pyvista_when_available():
+    pytest.importorskip("pyvista")
+    r = make_renderer(engine="auto")
+    # When pyvista is installed (which it is for this test), auto should pick it.
+    assert r.name == "pyvista"

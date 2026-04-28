@@ -48,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--hemi", type=str, default="both",
                     choices=["left", "right", "both"])
     ap.add_argument("--engine", type=str, default="auto",
-                    choices=["auto", "matplotlib", "plotly"])
+                    choices=["auto", "matplotlib", "plotly", "pyvista"])
     ap.add_argument("--mesh", type=str, default="fsaverage5",
                     choices=["fsaverage", "fsaverage5", "fsaverage6",
                              "fsaverage7"])
