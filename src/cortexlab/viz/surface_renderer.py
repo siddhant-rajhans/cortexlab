@@ -106,9 +106,16 @@ class RenderConfig:
     vmax: float | None = None
     symmetric_cbar: bool = True
     dpi: int = 120          # matplotlib only; plotly uses width/height
-    width: int = 1200       # plotly only
-    height: int = 600       # plotly only
+    width: int = 1200
+    height: int = 600
     bg_color: str = "white"
+    # Cortical surface to render the data on. ``inflated`` is the
+    # smooth-balloon view used by most encoding papers (and TRIBE).
+    # ``pial`` shows the actual pial surface with real 3D gyri/sulci —
+    # easier to recognize as a brain at a glance, but visual contrast
+    # for stat maps lives in deep sulci you can't see from outside.
+    # ``white`` is the gray/white boundary, in between.
+    surface: Literal["inflated", "pial", "white"] = "inflated"
 
 
 class SurfaceRenderer(abc.ABC):
@@ -174,8 +181,19 @@ class SurfaceRenderer(abc.ABC):
         finite = np.isfinite(stat_map)
         if not finite.any():
             return -1.0, 1.0
-        vmax = float(np.nanmax(np.abs(stat_map))) if config.symmetric_cbar else float(np.nanmax(stat_map))
-        vmin = -vmax if config.symmetric_cbar and vmax > 0 else float(np.nanmin(stat_map))
+        # For one-sided perceptual colormaps (hot, viridis, plasma, ...) the
+        # symmetric-cbar convention wastes half the cmap below zero where
+        # there's no data, dimming everything. Detect and override.
+        one_sided_cmaps = {"hot", "viridis", "plasma", "magma", "inferno",
+                            "Reds", "Oranges", "YlOrRd", "afmhot", "gist_heat"}
+        symmetric = config.symmetric_cbar and config.cmap not in one_sided_cmaps
+        if symmetric:
+            vmax = float(np.nanmax(np.abs(stat_map)))
+            vmin = -vmax if vmax > 0 else float(np.nanmin(stat_map))
+        else:
+            vmax = float(np.nanmax(stat_map))
+            data_min = float(np.nanmin(stat_map))
+            vmin = max(0.0, data_min) if config.cmap in one_sided_cmaps else data_min
         return vmin, vmax
 
 
@@ -185,6 +203,13 @@ class MatplotlibRenderer(SurfaceRenderer):
     name = "matplotlib"
 
     def render_frame(self, stat_map, view, hemi, config):
+        # Force a headless backend before importing pyplot. Necessary
+        # in test suites and pipelines where another renderer (e.g.
+        # PyVista) may have left matplotlib's interactive backend in a
+        # half-initialized state.
+        import matplotlib  # lazy
+        if matplotlib.get_backend().lower() != "agg":
+            matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt  # lazy
         from nilearn.plotting import plot_surf_stat_map  # lazy
 
@@ -317,8 +342,246 @@ class PlotlyRenderer(SurfaceRenderer):
         return fig
 
 
+class PyVistaRenderer(SurfaceRenderer):
+    """PyVista + VTK + OpenGL backend. The TRIBE-quality path.
+
+    Mirrors the recipe published by Meta's TRIBE v2 cortical plotting
+    code: smooth-shaded mesh on a sulcal-depth background, rendered
+    off-screen at dpi-supersampled resolution, then alpha-cropped.
+    Real OpenGL via VTK uses any available GPU (NVIDIA / AMD / Intel
+    integrated / Apple Metal); falls back to software-OSMesa on a
+    GPU-less host but stays correct.
+
+    Why this exists when matplotlib + plotly already cover the static
+    panel cases: matplotlib's 3D backend is flat-shaded with no
+    proper specular highlights, so the inflated cortex looks washed
+    out. Plotly's WebGL is correct but the camera setup we use
+    flattens the brain into a 2D silhouette in our subplot layout.
+    PyVista lets us set ``view_vector`` directly, so the camera
+    behaves the way published brain figures expect.
+
+    Requires the ``[plotting]`` extras (which ship pyvista already)
+    or an explicit ``pip install pyvista``.
+    """
+
+    name = "pyvista"
+
+    # TRIBE-quality defaults. The dpi=3000 supersample is the single
+    # biggest visual upgrade over nilearn's default rendering.
+    dpi: int = 3000
+    bg_darkness: float = 0.0
+    ambient: float = 0.3
+    w_pad: float = 0.03
+    h_pad: float = 0.03
+
+    # Camera vectors (toward, viewup) in VTK's right-handed coords.
+    # Match TRIBE's VIEW_DICT exactly so output orientation is identical.
+    VIEW_DICT: dict[str, tuple[list[int], list[int]]] = {
+        "lateral_left":   ([-1, 0, 0], [0, 0, 1]),
+        "lateral_right":  ([1, 0, 0],  [0, 0, 1]),
+        "medial_left":    ([1, 0, 0],  [0, 0, 1]),
+        "medial_right":   ([-1, 0, 0], [0, 0, 1]),
+        "dorsal":         ([0, 0, 1],  [0, 1, 0]),
+        "ventral":        ([0, 0, -1], [1, 0, 0]),
+        "anterior":       ([0, 1, 0],  [0, 0, -1]),
+        "posterior":      ([0, -1, 0], [0, 0, 1]),
+    }
+
+    def render_frame(self, stat_map, view, hemi, config):
+        """Render a single frame.
+
+        ``view`` for this renderer is interpreted as a string name
+        ('lateral', 'medial', 'dorsal', etc) when given as such, OR
+        as a (elev, azim) tuple in degrees that we convert to a
+        view_vector. For animation, the (elev, azim) form lets the
+        existing animation pipeline rotate around the vertical axis.
+        """
+        truncated = truncate_to_mesh(stat_map, config.mesh)
+        n_per_hemi = truncated.shape[0] // 2
+        lh, rh = truncated[:n_per_hemi], truncated[n_per_hemi:]
+
+        if hemi == "both":
+            from PIL import Image
+            left_png = self._render_one(lh, "left", view, config)
+            right_png = self._render_one(rh, "right", view, config)
+            left_img = Image.open(io.BytesIO(left_png)).convert("RGB")
+            right_img = Image.open(io.BytesIO(right_png)).convert("RGB")
+            max_h = max(left_img.height, right_img.height)
+            canvas = Image.new(
+                "RGB",
+                (left_img.width + right_img.width, max_h),
+                config.bg_color,
+            )
+            canvas.paste(left_img, (0, 0))
+            canvas.paste(right_img, (left_img.width, 0))
+            buf = io.BytesIO()
+            canvas.save(buf, format="PNG", optimize=True)
+            return buf.getvalue()
+
+        data = lh if hemi == "left" else rh
+        return self._render_one(data, hemi, view, config)
+
+    def _render_one(self, hemi_data, hemi, view, config):
+        import pyvista as pv  # lazy
+        from PIL import Image
+
+        fs = self._fsaverage()
+        # Pick the surface family the caller asked for.
+        surface_attr = {
+            "inflated": ("infl_left", "infl_right"),
+            "pial":     ("pial_left", "pial_right"),
+            "white":    ("white_left", "white_right"),
+        }[config.surface]
+        mesh_path = getattr(fs, surface_attr[0] if hemi == "left" else surface_attr[1])
+        sulc_path = fs.sulc_left if hemi == "left" else fs.sulc_right
+
+        # nilearn 0.13+ ships these as GIFTI; load via nilearn.surface.
+        from nilearn.surface import load_surf_data, load_surf_mesh
+        m = load_surf_mesh(mesh_path)
+        vertices = np.asarray(m.coordinates)
+        faces = np.asarray(m.faces)
+        bg_map = np.asarray(load_surf_data(sulc_path))
+
+        # Composite RGBA stat-map onto sulcal-depth background. Suprathreshold
+        # voxels show the colormap; subthreshold show gyri/sulci modulation.
+        # NaN voxels (e.g. FDR-masked) become fully transparent so the
+        # sulcal background shows through.
+        from matplotlib.cm import ScalarMappable
+        from matplotlib.colors import LinearSegmentedColormap, Normalize
+        vmin, vmax = self._vmin_vmax(hemi_data, config)
+        cmap = self._thresholded_cmap(config.cmap, threshold=config.threshold,
+                                       vmin=vmin, vmax=vmax)
+        sm = ScalarMappable(norm=Normalize(vmin=vmin, vmax=vmax), cmap=cmap)
+        nan_mask = ~np.isfinite(hemi_data)
+        data_filled = np.where(nan_mask, vmin, hemi_data)
+        rgba = sm.to_rgba(data_filled).copy()  # cmap output is read-only
+        # Force NaN voxels fully transparent so sulcal bg dominates them.
+        rgba[nan_mask, 3] = 0.0
+        # Force voxels at exactly vmin (or below threshold band) to also
+        # be transparent — keeps cleanly-empty areas truly empty.
+        if config.threshold is not None and not nan_mask.all():
+            below = np.abs(hemi_data) < config.threshold
+            rgba[below, 3] = 0.0
+        bg_norm = (bg_map - bg_map.min()) / (bg_map.max() - bg_map.min() + 1e-8)
+        bg_rgb = 1 - np.column_stack(
+            [self.bg_darkness + bg_norm * (1 - self.bg_darkness)] * 3
+        )
+        colors = rgba[:, 3:4] * rgba[:, :3] + (1 - rgba[:, 3:4]) * bg_rgb
+
+        pv_faces = np.column_stack([np.full(len(faces), 3), faces])
+        surf = pv.PolyData(vertices, pv_faces)
+        surf.point_data["colors"] = colors
+
+        # Render off-screen at supersampled resolution. The window_size
+        # is 1:1 pixels — Pillow's tight_crop is what tightens the result.
+        w_px = max(1200, config.width or 1200)
+        h_px = max(800, config.height or 800)
+        pl = pv.Plotter(window_size=[w_px, h_px], off_screen=True)
+        pl.add_mesh(
+            surf, scalars="colors", rgb=True,
+            smooth_shading=True, ambient=self.ambient,
+        )
+        pl.set_background(config.bg_color)
+        vec, up = self._view_vector(view, hemi)
+        pl.view_vector(vec, viewup=up)
+        img = pl.screenshot(return_img=True)
+        pl.close()
+
+        # Tight-crop transparent / matching-bg edges for clean panels.
+        cropped = self._tight_crop(img, config.bg_color, self.w_pad, self.h_pad)
+        buf = io.BytesIO()
+        Image.fromarray(cropped).save(buf, format="PNG", optimize=True)
+        return buf.getvalue()
+
+    def _view_vector(self, view, hemi):
+        """Translate either a named view, a (camera, viewup) tuple, or a
+        matplotlib-style (elev, azim) tuple into VTK camera vectors.
+
+        The (elev, azim) lateral/medial angles used by
+        :mod:`scripts.plot_cortical_maps` are hemisphere-aware in
+        nilearn's matplotlib backend (the same numeric pair means
+        different things for LH vs RH). PyVista's view_vector is
+        absolute in 3D space, so we look up the matching named view
+        for the four canonical static panels rather than running a
+        generic angle-to-vector formula. For arbitrary rotations
+        (animation) we fall through to the formula.
+        """
+        if isinstance(view, str):
+            key = view if view in self.VIEW_DICT else f"lateral_{hemi}"
+            return self.VIEW_DICT[key]
+        if isinstance(view, tuple) and len(view) == 2 and isinstance(view[0], list):
+            return view  # already (vec, up)
+        elev, azim = view
+        # Map nilearn's canonical static-panel angles to absolute named
+        # views, hemisphere-aware. Covers the 4-panel layout used by
+        # `plot_cortical_maps.py` — anything else falls through to the
+        # generic angle-to-vector path below for animation.
+        STATIC: dict[tuple[float, float], dict[str, str]] = {
+            (0.0, 180.0):  {"left": "lateral_left",  "right": "medial_right"},
+            (0.0,   0.0):  {"left": "medial_left",   "right": "lateral_right"},
+            (90.0,  0.0):  {"left": "dorsal",        "right": "dorsal"},
+            (-90.0, 0.0):  {"left": "ventral",       "right": "ventral"},
+        }
+        key = (round(float(elev), 1), round(float(azim), 1))
+        named = STATIC.get(key, {}).get(hemi)
+        if named is not None:
+            return self.VIEW_DICT[named]
+        # General (elev, azim) -> unit vector for animation rotation.
+        rad_e = np.deg2rad(elev)
+        rad_a = np.deg2rad(azim)
+        x = np.cos(rad_e) * np.cos(rad_a)
+        y = np.cos(rad_e) * np.sin(rad_a)
+        z = np.sin(rad_e)
+        return [x, y, z], [0, 0, 1]
+
+    def _thresholded_cmap(self, name, threshold, vmin, vmax):
+        """Build a colormap that shows neutral gray for |val| < threshold
+        rather than fading to background. Matches the TRIBE recipe.
+        """
+        from matplotlib import colormaps
+        from matplotlib.colors import LinearSegmentedColormap, to_rgba
+        base = colormaps[name]
+        if threshold is None or vmax <= vmin:
+            return base
+        n = 256
+        xs = np.linspace(0, 1, n)
+        colors = base(xs)
+        # Neutral gray for values whose Norm-mapped position falls in
+        # the |val| < threshold band.
+        if vmin < 0:  # symmetric
+            band = threshold / max(abs(vmin), abs(vmax))
+            mask = np.abs(xs - 0.5) < band / 2
+        else:
+            band = threshold / (vmax - vmin)
+            mask = xs < band
+        colors[mask] = [0.5, 0.5, 0.5, 1.0]
+        return LinearSegmentedColormap.from_list(f"{name}_thr", colors)
+
+    def _tight_crop(self, img: np.ndarray, bg_color: str, w_pad: float, h_pad: float):
+        """Trim padding by finding the bounding box of pixels that
+        differ from the background color."""
+        from PIL import ImageColor
+        bg = np.array(ImageColor.getrgb(bg_color), dtype=np.uint8)
+        if img.ndim == 2:
+            img = np.stack([img] * 3, axis=-1)
+        if img.shape[2] == 4:
+            img = img[:, :, :3]
+        diff = np.any(img != bg, axis=-1)
+        ys, xs = np.where(diff)
+        if ys.size == 0:
+            return img
+        y0, y1 = ys.min(), ys.max()
+        x0, x1 = xs.min(), xs.max()
+        h, w = img.shape[:2]
+        py = int((y1 - y0) * h_pad)
+        px = int((x1 - x0) * w_pad)
+        y0, y1 = max(0, y0 - py), min(h, y1 + py + 1)
+        x0, x1 = max(0, x0 - px), min(w, x1 + px + 1)
+        return img[y0:y1, x0:x1]
+
+
 def make_renderer(
-    engine: Literal["auto", "matplotlib", "plotly"] = "auto",
+    engine: Literal["auto", "matplotlib", "plotly", "pyvista"] = "auto",
     mesh: str = "fsaverage5",
 ) -> SurfaceRenderer:
     """Factory. ``engine='auto'`` picks plotly when available, else matplotlib.
@@ -329,6 +592,15 @@ def make_renderer(
     """
     if engine == "matplotlib":
         return MatplotlibRenderer(mesh=mesh)
+    if engine == "pyvista":
+        try:
+            import pyvista  # noqa: F401
+        except ImportError as e:
+            raise ImportError(
+                "engine='pyvista' requires pyvista. "
+                "Install with `pip install cortexlab[plotting]` or `pip install pyvista`."
+            ) from e
+        return PyVistaRenderer(mesh=mesh)
     if engine == "plotly":
         try:
             import kaleido  # noqa: F401
@@ -343,13 +615,22 @@ def make_renderer(
             ) from e
         return PlotlyRenderer(mesh=mesh)
     if engine == "auto":
+        # Prefer PyVista when available — it produces TRIBE-quality
+        # smooth-shaded output via real OpenGL on any GPU.
+        try:
+            import pyvista  # noqa: F401
+            logger.info("auto-selected pyvista renderer (OpenGL)")
+            return PyVistaRenderer(mesh=mesh)
+        except ImportError:
+            pass
         try:
             import kaleido  # noqa: F401
             import plotly  # noqa: F401
         except ImportError:
             logger.info(
-                "plotly + kaleido not installed; falling back to matplotlib renderer. "
-                "Install with `pip install cortexlab[viz]` for GPU acceleration."
+                "neither pyvista nor plotly+kaleido installed; falling back to "
+                "matplotlib renderer. Install with `pip install cortexlab[plotting]` "
+                "for the PyVista path."
             )
             return MatplotlibRenderer(mesh=mesh)
         # kaleido v1+ depends on an external Chrome install. Imports succeed
