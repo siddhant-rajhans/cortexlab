@@ -106,9 +106,16 @@ class RenderConfig:
     vmax: float | None = None
     symmetric_cbar: bool = True
     dpi: int = 120          # matplotlib only; plotly uses width/height
-    width: int = 1200       # plotly only
-    height: int = 600       # plotly only
+    width: int = 1200
+    height: int = 600
     bg_color: str = "white"
+    # Cortical surface to render the data on. ``inflated`` is the
+    # smooth-balloon view used by most encoding papers (and TRIBE).
+    # ``pial`` shows the actual pial surface with real 3D gyri/sulci —
+    # easier to recognize as a brain at a glance, but visual contrast
+    # for stat maps lives in deep sulci you can't see from outside.
+    # ``white`` is the gray/white boundary, in between.
+    surface: Literal["inflated", "pial", "white"] = "inflated"
 
 
 class SurfaceRenderer(abc.ABC):
@@ -419,7 +426,13 @@ class PyVistaRenderer(SurfaceRenderer):
         from PIL import Image
 
         fs = self._fsaverage()
-        mesh_path = fs.infl_left if hemi == "left" else fs.infl_right
+        # Pick the surface family the caller asked for.
+        surface_attr = {
+            "inflated": ("infl_left", "infl_right"),
+            "pial":     ("pial_left", "pial_right"),
+            "white":    ("white_left", "white_right"),
+        }[config.surface]
+        mesh_path = getattr(fs, surface_attr[0] if hemi == "left" else surface_attr[1])
         sulc_path = fs.sulc_left if hemi == "left" else fs.sulc_right
 
         # nilearn 0.13+ ships these as GIFTI; load via nilearn.surface.

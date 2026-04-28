@@ -71,6 +71,13 @@ def parse_args() -> argparse.Namespace:
                          "in seconds; fsaverage7 is publication-quality "
                          "and fast under the plotly engine, slow under "
                          "matplotlib.")
+    ap.add_argument("--surface", type=str, default="inflated",
+                    choices=["inflated", "pial", "white"],
+                    help="Which cortical surface to render the stat map on. "
+                         "'inflated' = smooth balloon (TRIBE/encoding paper "
+                         "default). 'pial' = real cortex shape with actual "
+                         "3D gyri and sulci. 'white' = gray/white boundary, "
+                         "in between.")
     ap.add_argument("--cmap", type=str, default="cold_hot",
                     help="matplotlib/nilearn colormap.")
     ap.add_argument("--threshold", type=float, default=None,
@@ -141,6 +148,7 @@ def _plot_static(renderer, stat_map: np.ndarray, title: str,
         mesh=args.mesh, cmap=args.cmap,
         threshold=None if already_masked else args.threshold,
         dpi=args.dpi, width=args.width, height=args.height,
+        surface=args.surface,
     )
     finite = np.isfinite(stat_map)
     if not finite.any():

@@ -52,6 +52,10 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--mesh", type=str, default="fsaverage5",
                     choices=["fsaverage", "fsaverage5", "fsaverage6",
                              "fsaverage7"])
+    ap.add_argument("--surface", type=str, default="inflated",
+                    choices=["inflated", "pial", "white"],
+                    help="Cortical surface family. 'pial' shows the real "
+                         "brain shape; 'inflated' is a smooth balloon.")
     ap.add_argument("--cmap", type=str, default="cold_hot")
     ap.add_argument("--threshold", type=float, default=None)
     ap.add_argument("--q-threshold", type=float, default=0.05)
@@ -179,6 +183,7 @@ def main() -> None:
         mesh=args.mesh, cmap=args.cmap,
         threshold=args.threshold, dpi=args.dpi,
         width=args.width, height=args.height,
+        surface=args.surface,
     )
     logger.info("rendering %d frames with %s engine, mesh=%s, hemi=%s",
                 args.n_frames, renderer.name, args.mesh, args.hemi)
