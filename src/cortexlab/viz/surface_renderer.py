@@ -1,7 +1,7 @@
 """Pluggable cortical-surface renderer.
 
-This module provides a thin abstraction over two rendering engines that
-both produce per-vertex stat maps on inflated fsaverage surfaces:
+This module provides a thin abstraction over three rendering engines
+that all produce per-vertex stat maps on inflated fsaverage surfaces:
 
 * ``MatplotlibRenderer`` uses ``nilearn.plotting.plot_surf_stat_map``
   with matplotlib's default (3D, software rasterizer) backend. Pure
@@ -15,22 +15,30 @@ both produce per-vertex stat maps on inflated fsaverage surfaces:
   which bundles a headless Chromium. ``HTML`` output is essentially
   free since plotly already builds the figure.
 
-Why two engines instead of "just use plotly"?
+* ``PyVistaRenderer`` uses PyVista + VTK + real OpenGL. This is the
+  TRIBE-quality path: smooth Phong shading with specular highlights,
+  proper hemisphere-aware camera setup, and NaN voxels rendered
+  transparent so sulcal background shows through. Recommended for
+  publication-grade figures.
+
+Why three engines instead of "just use one"?
 
 * Plotly's headless toolchain (kaleido + Chromium) occasionally fights
   with HPC system libraries; users who can't install it should still
   be able to make figures. Matplotlib is a guaranteed fallback.
-* For deck-quality static figures, both engines are interchangeable
-  and matplotlib produces an output style some users prefer.
+* PyVista is the visual quality leader but adds VTK as a dependency,
+  which some users prefer to avoid.
+* For deck-quality static figures, the three engines produce visibly
+  different output and users may prefer one style over another.
 
-The factory :func:`make_renderer` defaults to plotly when the
-``[viz]`` extras are installed and silently falls back to matplotlib
-otherwise. Callers who want explicit control pass ``engine="..."``.
+The factory :func:`make_renderer` prefers pyvista when installed, then
+plotly, then matplotlib. Callers who want explicit control pass
+``engine="..."``.
 
 Animation API
 -------------
 
-Both renderers expose ``render_frame(stat_map, view, ...)`` returning
+All renderers expose ``render_frame(stat_map, view, ...)`` returning
 PNG bytes. Animation orchestration lives in
 :mod:`scripts.animate_cortical_maps` (assemble frames into GIF / MP4);
 the renderer cares only about one frame at a time.
@@ -105,7 +113,7 @@ class RenderConfig:
     vmin: float | None = None
     vmax: float | None = None
     symmetric_cbar: bool = True
-    dpi: int = 120          # matplotlib only; plotly uses width/height
+    dpi: int = 120          # matplotlib only; plotly/pyvista use width/height
     width: int = 1200
     height: int = 600
     bg_color: str = "white"
@@ -447,7 +455,7 @@ class PyVistaRenderer(SurfaceRenderer):
         # NaN voxels (e.g. FDR-masked) become fully transparent so the
         # sulcal background shows through.
         from matplotlib.cm import ScalarMappable
-        from matplotlib.colors import LinearSegmentedColormap, Normalize
+        from matplotlib.colors import Normalize
         vmin, vmax = self._vmin_vmax(hemi_data, config)
         cmap = self._thresholded_cmap(config.cmap, threshold=config.threshold,
                                        vmin=vmin, vmax=vmax)
@@ -584,11 +592,12 @@ def make_renderer(
     engine: Literal["auto", "matplotlib", "plotly", "pyvista"] = "auto",
     mesh: str = "fsaverage5",
 ) -> SurfaceRenderer:
-    """Factory. ``engine='auto'`` picks plotly when available, else matplotlib.
+    """Factory. ``engine='auto'`` prefers pyvista, then plotly, then matplotlib.
 
-    Explicit ``engine='plotly'`` will raise ``ImportError`` if the
-    ``[viz]`` extras aren't installed; that's the right behavior for
-    callers who specifically asked for it.
+    Explicit engine selection raises ``ImportError`` if the requested
+    backend's dependencies aren't installed (rather than silently
+    falling back), so callers who specifically asked for one engine
+    get a clear failure if the environment is misconfigured.
     """
     if engine == "matplotlib":
         return MatplotlibRenderer(mesh=mesh)
@@ -654,7 +663,9 @@ def make_renderer(
             return MatplotlibRenderer(mesh=mesh)
         logger.info("auto-selected plotly renderer (GPU/WebGL)")
         return PlotlyRenderer(mesh=mesh)
-    raise ValueError(f"unknown engine {engine!r}; pick auto|matplotlib|plotly")
+    raise ValueError(
+        f"unknown engine {engine!r}; pick auto|matplotlib|plotly|pyvista"
+    )
 
 
 __all__ = [
@@ -664,5 +675,6 @@ __all__ = [
     "SurfaceRenderer",
     "MatplotlibRenderer",
     "PlotlyRenderer",
+    "PyVistaRenderer",
     "make_renderer",
 ]
