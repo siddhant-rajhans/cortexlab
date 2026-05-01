@@ -36,15 +36,15 @@ from neuraltrain.utils import BaseExperiment, WandbLoggerConfig
 from torch import nn
 from torch.utils.data import DataLoader
 
-from cortexlab.data.transforms import *  # register custom events transforms in neuralset
 from cortexlab.core.model import *  # register custom models in neuraltrain
-from cortexlab.data.studies import *  # register studies
+from cortexlab.data.fmri import *  # register TribeSurfaceProjector
 from cortexlab.data.loader import (
     MultiStudyLoader,
     set_study_in_average_subject_mode,
     split_segments_by_time,
 )
-from cortexlab.data.fmri import *  # register TribeSurfaceProjector
+from cortexlab.data.studies import *  # register studies
+from cortexlab.data.transforms import *  # register custom events transforms in neuralset
 
 # Configure logger
 LOGGER = logging.getLogger(__name__)

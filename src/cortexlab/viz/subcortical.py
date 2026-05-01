@@ -114,8 +114,6 @@ def get_mask(label: str, resolution: tp.Literal["1mm", "2mm"] = "1mm"):
             "Cerebellum atlas (Diedrichsen 2009) is not yet supported. "
             "Provide the atlas path manually."
         )
-        img = nib.load(file)
-        mask = img.get_fdata() > 0  # merge all lobules automatically
     elif label == "Brain-Stem":
         # subcortical, return hemisphere-specific mesh (default: right)
         idx = ho_sub.labels.index(label)
