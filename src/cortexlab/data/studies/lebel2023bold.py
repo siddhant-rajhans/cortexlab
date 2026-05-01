@@ -5,9 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 """Natural language fMRI dataset: 3T fMRI responses to spoken narrative stories.
 
-This dataset provides fMRI data from participants listening to natural spoken 
-narratives (stories) during 3T scanning. The stimuli include various narrative 
-audio stories with detailed word-level and phoneme-level annotations. The dataset 
+This dataset provides fMRI data from participants listening to natural spoken
+narratives (stories) during 3T scanning. The stimuli include various narrative
+audio stories with detailed word-level and phoneme-level annotations. The dataset
 is designed for studying natural language processing in the brain.
 
 Experimental Design:
@@ -19,7 +19,7 @@ Experimental Design:
         * Audio narratives with 10-second blank period before story onset
         * Test story: "wheretheressmoke" (with 10 runs)
         * Training stories: diverse narrative content
-    - Localizer tasks included: AudioMotorLocalizer, AuditoryLocalizer, 
+    - Localizer tasks included: AudioMotorLocalizer, AuditoryLocalizer,
       CategoryLocalizer, MotorLocalizer
 
 Data Format:
@@ -36,7 +36,7 @@ Study Classes:
         - Available spaces: T1w, MNI152NLin6Asym, fsaverage, fsnative
         - 432 timelines (all sessions/runs)
         - Full BIDS structure with multiple space outputs
-        
+
     2. **LebelProcessed2023Bold**: Uses authors' custom HDF5 preprocessing
         - Custom cortical surface registration
         - 200 timelines (aggregated by subject x task)

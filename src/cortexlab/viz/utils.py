@@ -376,9 +376,9 @@ def set_title(axes, title, x_offset=0, y_offset=0, **kwargs):
     x = x + x_offset
     y = axes[0].get_position().y1 + y_offset
     fig = axes[0].get_figure()
-    if not "ha" in kwargs:
+    if "ha" not in kwargs:
         kwargs["ha"] = "center"
-    if not "va" in kwargs:
+    if "va" not in kwargs:
         kwargs["va"] = "top"
     fig.text(x, y, title, **kwargs)
 

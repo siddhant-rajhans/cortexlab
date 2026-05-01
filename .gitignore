@@ -17,3 +17,6 @@ wandb/
 .env
 experiments/results/*.json
 *.onnx
+
+# Local session/working files (never committed)
+SESSION_STATE.md
