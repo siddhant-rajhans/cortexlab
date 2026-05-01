@@ -433,7 +433,7 @@ def get_topk_rois(data: np.ndarray, hemi="both", mesh="fsaverage5", k=10) -> np.
     if hemi == "both_separate":
         left_labels = get_hcp_labels(mesh=mesh, combine=False, hemi="left").keys()
         right_labels = get_hcp_labels(mesh=mesh, combine=False, hemi="right").keys()
-        labels = [f"{l}-lh" for l in left_labels] + [f"{l}-rh" for l in right_labels]
+        labels = [f"{label}-lh" for label in left_labels] + [f"{label}-rh" for label in right_labels]
     else:
         labels = get_hcp_labels(mesh=mesh, combine=False, hemi=hemi).keys()
     top_k = np.argsort(values)[::-1][:k]
