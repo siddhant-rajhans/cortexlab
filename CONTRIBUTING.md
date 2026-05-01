@@ -16,14 +16,18 @@ cd cortexlab
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
-pip install -e ".[dev,analysis]"
+pip install -e ".[dev,plotting]"
 ```
+
+The `[plotting]` extras include `nilearn` and `pyvista`, which most
+viz tests need; `[dev]` ships pytest, ruff, and coverage. If you're
+only touching analysis code, `[dev,analysis]` is enough.
 
 ### 3. Verify everything works
 
 ```bash
-pytest tests/ -v
-ruff check src/ tests/
+pytest tests/ -v          # 280 tests, 3 CUDA-gated (skipped on CPU)
+ruff check src/ scripts/ tests/
 ```
 
 ## Development Workflow
@@ -38,7 +42,7 @@ ruff check src/ tests/
 3. **Run tests and lint** before committing:
    ```bash
    pytest tests/ -v
-   ruff check src/ tests/
+   ruff check src/ scripts/ tests/
    ```
 
 4. **Open a pull request** with a clear description of what you changed and why.
@@ -48,13 +52,19 @@ ruff check src/ tests/
 ```
 src/cortexlab/
   core/          Model architecture, attention extraction, subject adaptation
-  data/          Dataset loading, transforms, HCP ROI utilities
+  data/          Dataset loading, parcellations, HCP ROI utilities, fMRI studies
+  features/      Foundation-model feature extractors (vision + text)
+  gpu/           Voxelwise ridge encoder (torch + Triton backends)
   training/      PyTorch Lightning training pipeline
   inference/     Predictor, streaming, modality attribution
-  analysis/      Brain-alignment benchmark, cognitive load scorer
-  viz/           Brain surface visualization
-tests/           Unit tests (pytest)
-examples/        Usage examples
+  analysis/      Brain-alignment benchmark, causal lesion, noise ceiling,
+                 BH-FDR, cognitive load, temporal dynamics, ROI connectivity
+  viz/           Cortical surface renderer (matplotlib / plotly+WebGL /
+                 pyvista+VTK), brain-region visualization
+experiments/     Lesion orchestrator, feature cache builder, alignment comparison
+scripts/         Cortical surface plotting + animation, post-processing tools
+tests/           Unit tests (pytest); 280 tests, 3 CUDA-gated
+notebooks/       Tutorial notebooks
 ```
 
 ## What to Work On
@@ -94,7 +104,8 @@ If you're adding a new analysis method or inference capability:
 1. Add the implementation in the appropriate subpackage
 2. Export it from the subpackage's `__init__.py`
 3. Write tests in `tests/test_yourfeature.py`
-4. Add a usage example in the README or `examples/`
+4. Add a usage example in the README, `notebooks/`, or `scripts/`
+5. Add a one-line entry to `CHANGELOG.md` under `[Unreleased]`
 
 ## Reporting Bugs
 
