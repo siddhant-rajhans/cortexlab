@@ -17,19 +17,23 @@
   </p>
 </p>
 
-CortexLab extends TRIBE v2 with streaming inference, interpretability tools, brain-alignment benchmarking with statistical testing, temporal dynamics analysis, ROI connectivity mapping, and cognitive load scoring. **76 tests**, published on HuggingFace, with an [interactive dashboard](https://github.com/siddhant-rajhans/cortexlab-dashboard).
+CortexLab extends TRIBE v2 with a reviewer-grade modality-lesion pipeline (causal ablation + permutation tests + BH-FDR), GPU voxelwise ridge regression (torch + Triton), HCP-MMP parcellation, noise-ceiling normalisation, three cortical-surface rendering engines (matplotlib / plotly+WebGL / pyvista+VTK), brain-alignment benchmarking with statistical testing, temporal dynamics analysis, ROI connectivity mapping, cognitive load scoring, and streaming inference. **280 tests**, published on HuggingFace and PyPI, with an [interactive dashboard](https://github.com/siddhant-rajhans/cortexlab-dashboard).
 
 ## What Can You Do With CortexLab?
 
 | Feature | What it does |
 |---|---|
-| **Brain-Alignment Benchmark** | Score any AI model (CLIP, DINOv2, V-JEPA2) on how "brain-like" its representations are, with permutation tests, bootstrap CIs, and FDR correction |
-| **Cognitive Load Scorer** | Predict visual complexity, auditory demand, language processing, and executive load from brain activation patterns |
-| **Temporal Dynamics** | Analyze peak response latency per brain region, lag correlations, and sustained vs transient response decomposition |
-| **ROI Connectivity** | Compute functional connectivity matrices, cluster brain networks, and derive graph metrics (degree, betweenness, modularity) |
-| **Streaming Inference** | Real-time sliding-window predictions from live feature streams for BCI pipelines |
-| **Modality Attribution** | Per-vertex importance scores revealing which modality (text/audio/video) drives each brain region |
-| **Cross-Subject Adaptation** | Adapt the model to new subjects with minimal calibration data via ridge regression |
+| **Modality-Lesion Pipeline** | End-to-end causal ablation per modality on BOLD Moments: GPU voxelwise ridge encoder, row-permutation tests for per-voxel p-values, Benjamini-Hochberg FDR, HCP-MMP parcellation, BOLD Moments noise-ceiling normalisation. CLI orchestrator handles the full pipeline. |
+| **Cortical Surface Plots** | Pluggable renderer with three engines: matplotlib (CPU, always available), plotly + WebGL (GPU), pyvista + VTK (TRIBE-quality smooth-shaded). Static 4-panel figures, rotating-brain GIF/MP4 animations, q-masked variants for FDR-corrected results. |
+| **GPU Voxelwise Ridge** | torch and Triton backends for ridge regression at cortex scale (~327k voxels). 5-100x faster than scikit-learn on a single GPU. |
+| **Brain-Alignment Benchmark** | Score any AI model (CLIP, DINOv2, V-JEPA2, SigLIP2, PaLiGemma2) on how "brain-like" its representations are, with permutation tests, bootstrap CIs, and FDR correction. |
+| **Foundation-Model Feature Extractors** | Vision (CLIP, DINOv2, SigLIP2, V-JEPA2, PaLiGemma2) and text (CLIP-text, SigLIP2-text). Cache-friendly NPZ output that drops directly into the lesion pipeline. |
+| **Cognitive Load Scorer** | Predict visual complexity, auditory demand, language processing, and executive load from brain activation patterns. |
+| **Temporal Dynamics** | Analyze peak response latency per brain region, lag correlations, and sustained vs transient response decomposition. |
+| **ROI Connectivity** | Compute functional connectivity matrices, cluster brain networks, and derive graph metrics (degree, betweenness, modularity). |
+| **Streaming Inference** | Real-time sliding-window predictions from live feature streams for BCI pipelines. |
+| **Modality Attribution** | Per-vertex importance scores revealing which modality (text/audio/video) drives each brain region. |
+| **Cross-Subject Adaptation** | Adapt the model to new subjects with minimal calibration data via ridge regression. |
 
 ## Quick Results
 
@@ -77,7 +81,14 @@ cd cortexlab
 pip install -e ".[analysis]"
 ```
 
-Optional extras: `[plotting]` (brain viz), `[training]` (PyTorch Lightning), `[dev]` (testing)
+Optional extras:
+
+- `[analysis]` — scipy for statistical helpers
+- `[viz]` — plotly + kaleido for the WebGL renderer (lighter-weight than `[plotting]`)
+- `[plotting]` — full brain-viz stack (nilearn, matplotlib, pyvista, scikit-image, mne)
+- `[training]` — PyTorch Lightning, W&B, torchmetrics
+- `[streaming]` — av for live video capture
+- `[dev]` — pytest, ruff, coverage
 
 ## Quick Start
 
@@ -146,17 +157,50 @@ for features in live_feature_stream():
         visualize(pred)  # (n_vertices,)
 ```
 
+### Modality-Lesion Pipeline (BOLD Moments)
+
+```bash
+# 1. Build feature cache once (vision + text features for all 1102 stimuli).
+python -m experiments.build_feature_cache \
+    --cache-dir $CORTEXLAB_RESULTS/features \
+    --vision-preset dinov2-vit-l \
+    --text-preset clip-text-vit-l-14
+
+# 2. Run the lesion pipeline with parcellation + ceiling + permutation + FDR.
+python -m experiments.causal_modality_ablation \
+    --subjects 1 2 3 4 5 6 7 8 9 10 \
+    --data-root $CORTEXLAB_DATA/bold_moments \
+    --feature-cache $CORTEXLAB_RESULTS/features \
+    --modalities vision,text \
+    --parcellation hcp-mmp --lh-annot $ATLAS/lh.HCPMMP1.annot --rh-annot $ATLAS/rh.HCPMMP1.annot \
+    --noise-ceiling bold-moments \
+    --permutations 1000 --fdr \
+    --device cuda --backend torch \
+    --output $CORTEXLAB_RESULTS/lesion/$(date +%Y%m%d_%H%M%S)
+
+# 3. Render TRIBE-quality cortical surface PNGs (and a rotating GIF).
+python scripts/plot_cortical_maps.py --results-dir $CORTEXLAB_RESULTS/lesion/<run> --engine pyvista
+python scripts/animate_cortical_maps.py --results-dir $CORTEXLAB_RESULTS/lesion/<run> --format gif
+```
+
 ## Architecture
 
 ```
 src/cortexlab/
   core/          Model (return_attn, gradient checkpointing, fp16, ONNX export)
-  data/          Dataset loading, HCP ROI utilities, 4 fMRI studies
+  data/          Dataset loading, HCP ROI utilities, parcellations, 4 fMRI studies
+  features/      Foundation-model extractors (CLIP, DINOv2, SigLIP2, V-JEPA2,
+                 PaLiGemma2 vision; CLIP-text, SigLIP2-text)
+  gpu/           Voxelwise ridge encoder (torch + Triton backends)
   training/      PyTorch Lightning pipeline (FSDP, W&B)
   inference/     Predictor, streaming, modality attribution
-  analysis/      Brain alignment (RSA/CKA/Procrustes + stats), cognitive load,
+  analysis/      Brain alignment (RSA/CKA/Procrustes + stats), causal lesion,
+                 noise ceiling, permutation tests, BH-FDR, cognitive load,
                  temporal dynamics, ROI connectivity
-  viz/           Brain surface visualization (nilearn, pyvista)
+  viz/           Cortical surface renderer (matplotlib / plotly+WebGL /
+                 pyvista+VTK), brain-region visualization
+experiments/     Lesion orchestrator, feature cache builder, alignment comparison
+scripts/         Cortical surface plotting + animation, post-processing
 ```
 
 ## Interactive Dashboard
@@ -175,10 +219,12 @@ A futuristic Streamlit dashboard with glassmorphism UI, 3D brain visualization, 
 ## Development
 
 ```bash
-pip install -e ".[dev,analysis]"
-pytest tests/ -v          # 76 tests
+pip install -e ".[dev,plotting]"
+pytest tests/ -v          # 280 tests, 3 CUDA-gated
 ruff check src/ tests/    # lint
 ```
+
+See [CHANGELOG.md](CHANGELOG.md) for the release history.
 
 ## Contributing
 
