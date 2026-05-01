@@ -60,9 +60,10 @@ def parse_args() -> argparse.Namespace:
                     help="Comma-separated modalities to plot. Defaults to "
                          "manifest.results[0].modality_order.")
     ap.add_argument("--engine", type=str, default="auto",
-                    choices=["auto", "matplotlib", "plotly"],
-                    help="Rendering engine. 'auto' selects plotly when the "
-                         "[viz] extras are installed, else matplotlib.")
+                    choices=["auto", "matplotlib", "plotly", "pyvista"],
+                    help="Rendering engine. 'auto' selects pyvista when "
+                         "available (TRIBE-quality smooth shading), then "
+                         "plotly, else matplotlib.")
     ap.add_argument("--mesh", type=str, default="fsaverage5",
                     choices=["fsaverage", "fsaverage5", "fsaverage6",
                              "fsaverage7"],
@@ -70,6 +71,13 @@ def parse_args() -> argparse.Namespace:
                          "in seconds; fsaverage7 is publication-quality "
                          "and fast under the plotly engine, slow under "
                          "matplotlib.")
+    ap.add_argument("--surface", type=str, default="inflated",
+                    choices=["inflated", "pial", "white"],
+                    help="Which cortical surface to render the stat map on. "
+                         "'inflated' = smooth balloon (TRIBE/encoding paper "
+                         "default). 'pial' = real cortex shape with actual "
+                         "3D gyri and sulci. 'white' = gray/white boundary, "
+                         "in between.")
     ap.add_argument("--cmap", type=str, default="cold_hot",
                     help="matplotlib/nilearn colormap.")
     ap.add_argument("--threshold", type=float, default=None,
@@ -126,14 +134,21 @@ def _load_subject_arrays(results_dir: Path, subject_ids: list[int],
 
 
 def _plot_static(renderer, stat_map: np.ndarray, title: str,
-                 out_path: Path, args, write_html: bool) -> None:
-    """Four-panel static figure with the configured renderer."""
+                 out_path: Path, args, write_html: bool,
+                 already_masked: bool = False) -> None:
+    """Four-panel static figure with the configured renderer.
+
+    ``already_masked`` skips the numeric ``--threshold`` for inputs
+    whose subthreshold voxels are already NaN (e.g. FDR-masked maps).
+    Otherwise we'd double-threshold and shrink the surviving cluster.
+    """
     from cortexlab.viz.surface_renderer import RenderConfig
 
     config = RenderConfig(
         mesh=args.mesh, cmap=args.cmap,
-        threshold=args.threshold, dpi=args.dpi,
-        width=args.width, height=args.height,
+        threshold=None if already_masked else args.threshold,
+        dpi=args.dpi, width=args.width, height=args.height,
+        surface=args.surface,
     )
     finite = np.isfinite(stat_map)
     if not finite.any():
@@ -198,7 +213,7 @@ def main() -> None:
                 renderer, masked,
                 f"ΔR² for {m}, q < {args.q_threshold} (BH-FDR)",
                 results_dir / f"surf_dr2_{m}_q{int(args.q_threshold*100):02d}.png",
-                args, args.write_html,
+                args, args.write_html, already_masked=True,
             )
 
 
