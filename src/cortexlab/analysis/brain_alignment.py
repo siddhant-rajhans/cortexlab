@@ -1,3 +1,4 @@
+# TODO: Fix broken doctest in BrainAlignmentBenchmark class docstring
 """Brain-alignment benchmark for comparing AI model representations.
 
 Score how "brain-like" any AI model's internal representations are by
