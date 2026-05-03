@@ -86,13 +86,15 @@ We use pre-commit hooks to ensure code quality before commits. These hooks autom
 
 ### Setup
 
-Install pre-commit:
+Install `pre-commit` and wire up the git hook:
 
 ```bash
 pip install pre-commit
+pre-commit install
 ```
 
-Run all checks manually:
+After `pre-commit install`, the hooks (ruff, end-of-file-fixer, trailing-whitespace, check-yaml, check-added-large-files) run automatically on every `git commit`. To run them on the whole repo manually (without committing):
+
 ```bash
 pre-commit run --all-files
 ```

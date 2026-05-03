@@ -131,4 +131,3 @@ def plot_lag_correlations(
     ax.set_ylabel("Correlation")
     ax.legend()
     ax.grid(alpha=0.3)
-

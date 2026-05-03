@@ -139,7 +139,7 @@ class PlotBrainNilearn(BasePlotBrain):
 
         if colorbar:
             if fig is None:
-                cbar = plt.colorbar(
+                plt.colorbar(
                     sm,
                     format="{x:0.2f}",
                     label=colorbar_title,
@@ -149,7 +149,7 @@ class PlotBrainNilearn(BasePlotBrain):
                 )
             else:
                 cb_ax = fig.add_axes([0.9, 0.2, 0.02, 0.6])
-                cbar = fig.colorbar(
+                fig.colorbar(
                     sm,
                     format="{x:0.2f}",
                     label=colorbar_title,
@@ -174,12 +174,10 @@ class PlotBrainNilearn(BasePlotBrain):
         if isinstance(views, str):
             views = [views]
         if axes is None:
-            fig, axarr = self.get_fig_axes(views=views)
+            _fig, axarr = self.get_fig_axes(views=views)
         else:
             views, axarr = self.get_axarr_and_views(axes, views)
-            fig = None
 
-        fsaverage_meshes = load_fsaverage(mesh=self.mesh)
         if self.atlas_name is not None:
             signals = [self.atlas_to_surf(signal) for signal in signals]
         elif signals[0].ndim == 4:

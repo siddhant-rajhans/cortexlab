@@ -303,18 +303,6 @@ def plot_colorbar(
         rotation = 0 if label_orientation == "horizontal" else 90
         cbar.set_label(label, rotation=rotation, labelpad=5)
 
-    # Add border by setting the color and linewidth of all spines
-    rect = matplotlib.patches.Rectangle(
-        (0, 0),
-        1,
-        1,
-        transform=cbar.ax.transAxes,
-        fill=False,
-        edgecolor="k",
-        linewidth=0.5,
-        clip_on=False,
-    )
-    # cbar.ax.add_patch(rect)
     return cbar
 
 
