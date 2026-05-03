@@ -80,6 +80,25 @@ notebooks/       Tutorial notebooks
 - **Docstrings**: Use NumPy-style docstrings for public functions
 - **Imports**: Let ruff sort imports automatically (`ruff check --fix`)
 
+## Pre-commit Hooks
+
+We use pre-commit hooks to ensure code quality before commits. These hooks automatically run linting and formatting checks before each commit.
+
+### Setup
+
+Install `pre-commit` and wire up the git hook:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+After `pre-commit install`, the hooks (ruff, end-of-file-fixer, trailing-whitespace, check-yaml, check-added-large-files) run automatically on every `git commit`. To run them on the whole repo manually (without committing):
+
+```bash
+pre-commit run --all-files
+```
+
 ## Writing Tests
 
 Tests use synthetic data and mock objects so you don't need real fMRI datasets or GPU access:

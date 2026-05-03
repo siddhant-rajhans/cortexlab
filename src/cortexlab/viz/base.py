@@ -342,10 +342,7 @@ class BasePlotBrain(pydantic.BaseModel):
             )
 
         first_neuro_keys = [key + "_0" for key in list(neuro.keys())]
-        left, full_width = (
-            axes[first_neuro_keys[0]].get_position().x0,
-            fig.get_figwidth(),
-        )
+        left = axes[first_neuro_keys[0]].get_position().x0
         for key, label in zip(
             first_neuro_keys + [TEXT_KEY, SOUND_KEY, f"{VIDEO_KEY}_0"],
             list(neuro.keys()) + [TEXT_KEY, SOUND_KEY, VIDEO_KEY],
