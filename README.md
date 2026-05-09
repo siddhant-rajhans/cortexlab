@@ -6,8 +6,10 @@
   <p align="center">
     <a href="https://github.com/siddhant-rajhans/cortexlab"><img src="https://img.shields.io/github/stars/siddhant-rajhans/cortexlab?style=social" alt="Stars"></a>
     <a href="https://github.com/siddhant-rajhans/cortexlab/network/members"><img src="https://img.shields.io/github/forks/siddhant-rajhans/cortexlab?style=social" alt="Forks"></a>
+    <a href="https://github.com/siddhant-rajhans/cortexlab/actions/workflows/ci.yml"><img src="https://github.com/siddhant-rajhans/cortexlab/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI"></a>
+    <a href="https://codecov.io/gh/siddhant-rajhans/cortexlab"><img src="https://codecov.io/gh/siddhant-rajhans/cortexlab/branch/master/graph/badge.svg" alt="Coverage"></a>
     <a href="https://github.com/siddhant-rajhans/cortexlab/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-CC--BY--NC--4.0-blue" alt="License"></a>
-    <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python"></a>
+    <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python"></a>
     <a href="https://huggingface.co/SID2000/cortexlab"><img src="https://img.shields.io/badge/HuggingFace-model-yellow" alt="HuggingFace"></a>
     <a href="https://pypi.org/project/cortexlab-toolkit/"><img src="https://img.shields.io/pypi/v/cortexlab-toolkit?color=green" alt="PyPI"></a>
     <a href="https://huggingface.co/spaces/SID2000/cortexlab-dashboard"><img src="https://img.shields.io/badge/Live%20Demo-HF%20Spaces-orange" alt="Demo"></a>
@@ -17,7 +19,7 @@
   </p>
 </p>
 
-CortexLab extends TRIBE v2 with a reviewer-grade modality-lesion pipeline (causal ablation + permutation tests + BH-FDR), GPU voxelwise ridge regression (torch + Triton), HCP-MMP parcellation, noise-ceiling normalisation, three cortical-surface rendering engines (matplotlib / plotly+WebGL / pyvista+VTK), brain-alignment benchmarking with statistical testing, temporal dynamics analysis, ROI connectivity mapping, cognitive load scoring, and streaming inference. **280 tests**, published on HuggingFace and PyPI, with an [interactive dashboard](https://github.com/siddhant-rajhans/cortexlab-dashboard).
+CortexLab extends TRIBE v2 with a reviewer-grade modality-lesion pipeline (causal ablation + permutation tests + BH-FDR), GPU voxelwise ridge regression (torch + Triton), HCP-MMP parcellation, noise-ceiling normalisation, three cortical-surface rendering engines (matplotlib / plotly+WebGL / pyvista+VTK), brain-alignment benchmarking with statistical testing, temporal dynamics analysis, ROI connectivity mapping, cognitive load scoring, and streaming inference. **283 tests** under CI on every push, published on HuggingFace and PyPI, with an [interactive dashboard](https://github.com/siddhant-rajhans/cortexlab-dashboard).
 
 ## What Can You Do With CortexLab?
 
