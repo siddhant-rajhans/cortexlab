@@ -2,12 +2,23 @@
 
 All notable changes to CortexLab are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
-follows [Semantic Versioning](https://semver.org/) once tagged releases begin.
-
-Until the first tagged release, "unreleased" tracks everything currently on
-`master`.
+follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+CI infrastructure restored: workflow now triggers on `master` (was wired to
+the non-existent `main` branch and never ran), Python pinned to 3.11 to
+satisfy the `exca` transitive constraint, plotting extras installed so the
+matplotlib renderer tests can find `nilearn`, and pytest runs under
+`xvfb-run` so PyVista's VTK backend has a virtual display. Coverage now
+reported via `pytest-cov` and uploaded to Codecov on every push (#70, #72).
+Broken doctest in `BrainAlignmentBenchmark` class docstring fixed (#71,
+closes #65).
+
+## [0.2.0] — 2026-05-09
+
+First tagged release. Bundles the GPU-ridge foundation (PR #22) and the
+reviewer-grade lesion-pipeline arc (PRs #40-#69) into a single PyPI-publish.
 
 ### Lesion-pipeline arc
 
@@ -114,9 +125,13 @@ auto-fallback. PRs #56, #57, #58, plus follow-ups in `867035e`, `8a2250e`,
 - 153 → 280 passing tests across the lesion-pipeline and
   visualisation arcs. CUDA-gated tests grew from 2 to 3.
 
-## v0.2 — 2026-04 (PR #22)
+### Foundations from PR #22 (2026-04, internal milestone)
 
-### Added
+The 0.1.0 → 0.2.0 jump rolls in PR #22, an earlier internal milestone
+that introduced the GPU-ridge and feature-extraction infrastructure
+the lesion-pipeline arc later built on.
+
+#### Added
 - GPU voxelwise ridge encoder with `torch` and `Triton` backends
   (`cortexlab.gpu.ridge`).
 - Foundation-model feature extractors for CLIP, DINOv2, SigLIP2,
@@ -131,10 +146,10 @@ auto-fallback. PRs #56, #57, #58, plus follow-ups in `867035e`, `8a2250e`,
 - SLURM submission templates (`scripts/slurm/`).
 - Tutorial notebook (`notebooks/tutorial_analysis.ipynb`).
 
-### Test coverage
+#### Test coverage
 - 89 → 143 passing tests.
 
-## v0.1 — 2026-03
+## [0.1.0] — 2026-03
 
 Initial open-source release. CortexLab forks and restructures Meta's
 TRIBE v2 into a Python package layout (`src/cortexlab/...`), adds a
@@ -142,4 +157,6 @@ test suite, and ships an interactive Streamlit dashboard
 (`cortexlab-dashboard` repo) with a 3D brain viewer and live-inference
 mode.
 
-[Unreleased]: https://github.com/siddhant-rajhans/cortexlab/compare/v0.2...HEAD
+[Unreleased]: https://github.com/siddhant-rajhans/cortexlab/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/siddhant-rajhans/cortexlab/releases/tag/v0.2.0
+[0.1.0]: https://github.com/siddhant-rajhans/cortexlab/releases/tag/v0.1.0
