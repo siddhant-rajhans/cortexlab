@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master, main]
   pull_request:
-    branches: [main]
+    branches: [master, main]
 
 jobs:
   lint:
@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
       - run: pip install ruff
       - run: ruff check src/ tests/
 
@@ -23,6 +23,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
-      - run: pip install -e ".[dev]"
-      - run: pytest tests/ -v --tb=short
+          python-version: "3.11"
+      # System libs for VTK / PyVista offscreen rendering on a headless runner.
+      # Without a display, VTK's OpenGL context fails to initialize and the
+      # PyVista renderer tests segfault. xvfb-run wraps pytest in a virtual
+      # frame buffer so the GL calls succeed.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb libgl1 libglu1-mesa libxrender1 libxt6 libxext6
+      - run: pip install -e ".[dev,plotting]"
+      - run: xvfb-run -a pytest tests/ -v --tb=short
