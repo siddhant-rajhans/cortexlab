@@ -110,12 +110,15 @@ _METHODS = {
 class BrainAlignmentBenchmark:
     """Benchmark AI model representations against predicted brain responses.
 
-    Example
-    -------
+    Examples
+    --------
+    >>> import numpy as np
+    >>> brain_predictions = np.random.randn(50, 200)
+    >>> clip_features = np.random.randn(50, 512)
     >>> bench = BrainAlignmentBenchmark(brain_predictions)
     >>> result = bench.score_model(clip_features, method="rsa")
-    >>> print(result.aggregate_score)
-    0.42
+    >>> result is not None
+    True
     """
 
     def __init__(
