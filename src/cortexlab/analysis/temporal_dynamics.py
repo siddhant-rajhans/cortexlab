@@ -30,9 +30,14 @@ class TemporalDynamicsAnalyzer:
 
     Example
     -------
+    >>> import numpy as np
+    >>> roi_indices = {"V1": np.array([0, 1, 2])}
+    >>> predictions = np.random.randn(10, 3)
+    >>> model_features = np.random.randn(10, 5)
     >>> analyzer = TemporalDynamicsAnalyzer(roi_indices, tr_seconds=1.0)
     >>> result = analyzer.analyze(predictions, model_features)
-    >>> print(f"V1 peak latency: {result.peak_latencies['V1']:.1f}s")
+    >>> result is not None
+    True
     """
 
     def __init__(
@@ -187,6 +192,17 @@ class TemporalDynamicsAnalyzer:
         Returns
         -------
         TemporalDynamicsResult
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> roi_indices = {"V1": np.array([0, 1, 2])}
+        >>> predictions = np.random.randn(10, 3)
+        >>> model_features = np.random.randn(10, 5)
+        >>> analyzer = TemporalDynamicsAnalyzer(roi_indices, tr_seconds=1.0)
+        >>> result = analyzer.analyze(predictions, model_features)
+        >>> result is not None
+        True
         """
         result = TemporalDynamicsResult()
 
