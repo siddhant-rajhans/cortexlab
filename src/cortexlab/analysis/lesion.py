@@ -138,6 +138,31 @@ def run_modality_lesion(
     Returns
     -------
     LesionResult
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> rng = np.random.default_rng(0)
+    >>> features_train = {
+    ...     "text": rng.standard_normal((50, 4)).astype(np.float32),
+    ...     "audio": rng.standard_normal((50, 4)).astype(np.float32),
+    ...     "video": rng.standard_normal((50, 4)).astype(np.float32),
+    ... }
+    >>> features_test = {
+    ...     "text": rng.standard_normal((10, 4)).astype(np.float32),
+    ...     "audio": rng.standard_normal((10, 4)).astype(np.float32),
+    ...     "video": rng.standard_normal((10, 4)).astype(np.float32),
+    ... }
+    >>> y_train = rng.standard_normal((50, 6)).astype(np.float32)
+    >>> y_test = rng.standard_normal((10, 6)).astype(np.float32)
+    >>> result = run_modality_lesion(
+    ...     features_train,
+    ...     features_test,
+    ...     y_train,
+    ...     y_test,
+    ... )
+    >>> result is not None
+    True
     """
     if mask_strategy not in ("zero", "learned"):
         raise ValueError(f"mask_strategy must be zero|learned, got {mask_strategy!r}")

@@ -52,6 +52,14 @@ def bh_fdr(
         Q-values, same shape and dtype family (``float64``) as the
         input. NaN entries in the input remain NaN in the output.
 
+    Examples
+    --------
+    >>> import numpy as np
+    >>> pvals = np.array([0.001, 0.5, 0.04, 0.99])
+    >>> result = bh_fdr(pvals)
+    >>> result is not None
+    True
+
     Notes
     -----
     The classic Benjamini-Hochberg procedure (1995):
