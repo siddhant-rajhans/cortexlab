@@ -130,9 +130,17 @@ class CognitiveLoadScorer:
 
     Example
     -------
+    >>> import numpy as np
+    >>> roi_indices = {
+    ...     "V1": np.array([0, 1]),
+    ...     "A1": np.array([2, 3]),
+    ...     "44": np.array([4, 5]),
+    ... }
+    >>> predictions = np.random.randn(10, 6)
     >>> scorer = CognitiveLoadScorer(roi_indices)
     >>> result = scorer.score_predictions(predictions)
-    >>> print(f"Overall load: {result.overall_load:.2f}")
+    >>> result is not None
+    True
     """
 
     def __init__(
@@ -219,6 +227,20 @@ class CognitiveLoadScorer:
         Returns
         -------
         CognitiveLoadResult
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> roi_indices = {
+        ...     "V1": np.array([0, 1]),
+        ...     "A1": np.array([2, 3]),
+        ...     "44": np.array([4, 5]),
+        ... }
+        >>> predictions = np.random.randn(10, 6)
+        >>> scorer = CognitiveLoadScorer(roi_indices)
+        >>> result = scorer.score_predictions(predictions)
+        >>> result is not None
+        True
         """
         if predictions.ndim == 1:
             predictions = predictions[np.newaxis, :]

@@ -30,10 +30,17 @@ class ROIConnectivityAnalyzer:
 
     Example
     -------
+    >>> import numpy as np
+    >>> roi_indices = {
+    ...     "V1": np.array([0, 1]),
+    ...     "A1": np.array([2, 3]),
+    ...     "44": np.array([4, 5]),
+    ... }
+    >>> predictions = np.random.randn(20, 6)
     >>> analyzer = ROIConnectivityAnalyzer(roi_indices)
-    >>> result = analyzer.analyze(predictions, n_clusters=4)
-    >>> print(result.correlation_matrix.shape)
-    (11, 11)
+    >>> result = analyzer.analyze(predictions, n_clusters=2)
+    >>> result is not None
+    True
     """
 
     def __init__(self, roi_indices: dict[str, np.ndarray]):
@@ -184,6 +191,20 @@ class ROIConnectivityAnalyzer:
         Returns
         -------
         ConnectivityResult
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> roi_indices = {
+        ...     "V1": np.array([0, 1]),
+        ...     "A1": np.array([2, 3]),
+        ...     "44": np.array([4, 5]),
+        ... }
+        >>> predictions = np.random.randn(20, 6)
+        >>> analyzer = ROIConnectivityAnalyzer(roi_indices)
+        >>> result = analyzer.analyze(predictions, n_clusters=2)
+        >>> result is not None
+        True
         """
         corr, names = self.compute_correlation_matrix(predictions)
         clusters = self.cluster_networks(corr, names, n_clusters)
